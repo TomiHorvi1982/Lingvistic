@@ -1,0 +1,6 @@
+{
+  "name": "LexiFlow & PromptCraft",
+  "description": "Offline and online text style rephraser (levels 1-3), reverse simplified translator, interactive prompt optimizer with loops, encrypted storage, and predictive text autocomplete.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
