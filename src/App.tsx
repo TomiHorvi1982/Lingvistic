@@ -922,82 +922,77 @@ export default function App() {
   });
 
   return (
-    <div id="app-root" className="flex flex-col min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-950 dark:text-slate-50 font-sans print:bg-white print:text-black transition-colors duration-200">
+    <div id="app-root" className="flex flex-col min-h-screen bg-slate-50 dark:bg-workspace-bg text-slate-950 dark:text-[#e5e7eb] font-sans print:bg-white print:text-black transition-colors duration-200">
       
       {/* 1. TOP HEADER NAVIGATION */}
-      <nav id="navbar" className="h-14 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 shrink-0 shadow-sm no-print">
+      <nav id="navbar" className="h-14 bg-white dark:bg-workspace-sidebar border-b border-slate-200 dark:border-white/10 flex items-center justify-between px-6 shrink-0 shadow-xs no-print">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center">
-            <Layers className="w-5 h-5 text-white" />
-          </div>
-          <span className="text-lg font-bold tracking-tight text-slate-800 dark:text-slate-100">
-            Linguist.AI <span className="text-xs font-normal bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded ml-2 border border-slate-200 dark:border-slate-700">v2.5 Offline/Online</span>
+          <div className="w-3 h-3 bg-blue-600 dark:bg-purple-500 rounded-xs" />
+          <span className="text-base font-bold tracking-tight text-slate-800 dark:text-white uppercase font-mono">
+            Linguist.AI <span className="text-[10px] font-mono bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 px-1.5 py-0.5 rounded ml-1 border border-slate-200 dark:border-white/10">V2.5</span>
           </span>
         </div>
         
         <div className="flex items-center gap-4">
           {/* AI Sebeučení pulse badge */}
           {(isLearning || learningStatus) && (
-            <div className="hidden lg:flex items-center gap-2 bg-purple-50 dark:bg-purple-950/30 px-3 py-1 rounded-full border border-purple-200 dark:border-purple-800/40 animate-fade-in shrink-0">
+            <div className="hidden lg:flex items-center gap-2 bg-purple-50 dark:bg-purple-950/20 px-3 py-1 rounded-full border border-purple-200 dark:border-purple-800/40 animate-fade-in shrink-0">
               <Brain className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 animate-pulse" />
-              <span className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider truncate max-w-[240px]">
+              <span className="text-[10px] font-mono font-bold text-purple-700 dark:text-purple-300 uppercase tracking-wider truncate max-w-[240px]">
                 {isLearning ? "AI Sebeučení běží..." : learningStatus}
               </span>
             </div>
           )}
 
           {/* Online / Offline badge */}
-          <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full border border-slate-200 dark:border-slate-700">
+          <div className="flex items-center gap-2 bg-slate-100 dark:bg-workspace-panel px-3 py-1 rounded-full border border-slate-200 dark:border-white/10 font-mono text-[11px] text-slate-600 dark:text-zinc-400">
             {isOnline ? (
               <>
-                <span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse"></span>
-                <span className="text-xs font-medium text-slate-600 dark:text-slate-300 flex items-center gap-1">
-                  <Globe className="w-3.5 h-3.5 inline text-blue-500" /> Online (Gemini AI aktivní)
-                </span>
+                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
+                <span>Online (Gemini AI aktivní)</span>
               </>
             ) : (
               <>
-                <span className="w-2.5 h-2.5 bg-amber-500 rounded-full"></span>
-                <span className="text-xs font-medium text-slate-600 dark:text-slate-300 flex items-center gap-1">
-                  <WifiOff className="w-3.5 h-3.5 inline text-amber-500" /> Offline (Slovníkový balíček)
-                </span>
+                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full"></span>
+                <span>Offline (Slovníkový balíček)</span>
               </>
-            )
-            }
+            )}
           </div>
 
           {/* Theme Toggle Button (Sun/Moon switch) */}
           <button
             onClick={() => setIsDarkMode(!isDarkMode)}
-            className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-slate-600 dark:text-slate-300 transition-all border border-slate-200 dark:border-slate-700 cursor-pointer flex items-center justify-center shrink-0"
+            className="p-1.5 bg-slate-100 dark:bg-workspace-panel hover:bg-slate-200 dark:hover:bg-workspace-bg rounded text-slate-600 dark:text-zinc-400 transition-all border border-slate-200 dark:border-white/10 cursor-pointer flex items-center justify-center shrink-0"
             title={isDarkMode ? "Přepnout na světlý režim" : "Přepnout na tmavý režim"}
           >
             {isDarkMode ? (
-              <Sun className="w-4 h-4 text-amber-400" />
+              <Sun className="w-3.5 h-3.5 text-amber-400" />
             ) : (
-              <Moon className="w-4 h-4 text-slate-600" />
+              <Moon className="w-3.5 h-3.5 text-slate-600" />
             )}
           </button>
 
-          <div className="flex items-center gap-2 border-l pl-4 border-slate-200 dark:border-slate-800">
+          <div className="flex items-center gap-2 border-l pl-4 border-slate-200 dark:border-white/10">
             <button 
               id="export-pdf-btn"
               onClick={handleExportPDF}
-              className="px-3 py-1.5 text-xs font-semibold bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center gap-1.5 text-slate-700 dark:text-slate-300"
+              className="px-3 py-1.5 text-[11px] font-mono font-medium bg-white dark:bg-workspace-panel border border-slate-300 dark:border-white/10 rounded hover:bg-slate-50 dark:hover:bg-workspace-bg transition-colors flex items-center gap-1.5 text-slate-700 dark:text-zinc-300 cursor-pointer"
               title="Vytiskne nebo uloží aktuální zobrazení do PDF"
             >
-              <FileDown className="w-3.5 h-3.5" /> Export PDF
+              <FileDown className="w-3.5 h-3.5" /> Export_PDF
             </button>
             <button 
               id="share-link-btn"
               onClick={handleShareLink}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
-                isShared ? "bg-green-600 text-white" : "bg-blue-600 text-white hover:bg-blue-700"
+              className={`px-3 py-1.5 text-[11px] font-mono font-medium rounded transition-all flex items-center gap-1.5 cursor-pointer ${
+                isShared 
+                  ? "bg-green-600 text-white border-none" 
+                  : "bg-blue-600 dark:bg-purple-600 text-white hover:bg-blue-700 dark:hover:bg-purple-700 border-none"
               }`}
               title="Vytvoří unikátní odkaz s aktuálním textem a nastavením"
             >
               {isShared ? <Check className="w-3.5 h-3.5" /> : <Share2 className="w-3.5 h-3.5" />}
-              {isShared ? "Zkopírováno!" : "Sdílet odkaz"}
+              {isShared ? "COPIED" : "SHARE_LINK"}
             </button>
           </div>
         </div>
@@ -1007,18 +1002,18 @@ export default function App() {
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
         
         {/* SIDEBAR (No-Print) */}
-        <aside id="sidebar" className="w-full md:w-64 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col p-4 shrink-0 no-print gap-4">
+        <aside id="sidebar" className="w-full md:w-64 bg-slate-50 dark:bg-workspace-sidebar border-r border-slate-200 dark:border-white/10 flex flex-col p-4 shrink-0 no-print gap-4">
           <div className="space-y-1">
             <button 
               onClick={() => setActiveTab("rephrase")}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium text-sm transition-all ${
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium text-sm transition-all cursor-pointer ${
                 activeTab === "rephrase" 
-                  ? "bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border-l-4 border-blue-600" 
-                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100"
+                  ? "bg-blue-50 dark:bg-purple-950/20 text-blue-700 dark:text-purple-400 border-l-4 border-blue-600 dark:border-purple-500" 
+                  : "text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-zinc-100"
               }`}
             >
               <div className="flex items-center gap-3">
-                <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <FileText className="w-4 h-4 text-blue-600 dark:text-purple-400" />
                 <span>Překlad & Analýza</span>
               </div>
               <ChevronRight className="w-3.5 h-3.5 opacity-60" />
@@ -1026,14 +1021,14 @@ export default function App() {
 
             <button 
               onClick={() => setActiveTab("prompt")}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium text-sm transition-all ${
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium text-sm transition-all cursor-pointer ${
                 activeTab === "prompt" 
-                  ? "bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border-l-4 border-blue-600" 
-                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100"
+                  ? "bg-blue-50 dark:bg-purple-950/20 text-blue-700 dark:text-purple-400 border-l-4 border-blue-600 dark:border-purple-500" 
+                  : "text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-zinc-100"
               }`}
             >
               <div className="flex items-center gap-3">
-                <Cpu className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <Cpu className="w-4 h-4 text-blue-600 dark:text-purple-400" />
                 <span>Prompt Optimizer</span>
               </div>
               <ChevronRight className="w-3.5 h-3.5 opacity-60" />
@@ -1041,14 +1036,14 @@ export default function App() {
 
             <button 
               onClick={() => setActiveTab("explain")}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium text-sm transition-all ${
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium text-sm transition-all cursor-pointer ${
                 activeTab === "explain" 
-                  ? "bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border-l-4 border-blue-600" 
-                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100"
+                  ? "bg-blue-50 dark:bg-purple-950/20 text-blue-700 dark:text-purple-400 border-l-4 border-blue-600 dark:border-purple-500" 
+                  : "text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-zinc-100"
               }`}
             >
               <div className="flex items-center gap-3">
-                <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <Sparkles className="w-4 h-4 text-blue-600 dark:text-purple-400" />
                 <span>Predikce textu</span>
               </div>
               <ChevronRight className="w-3.5 h-3.5 opacity-60" />
@@ -1056,14 +1051,14 @@ export default function App() {
 
             <button 
               onClick={() => setActiveTab("reply")}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium text-sm transition-all ${
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium text-sm transition-all cursor-pointer ${
                 activeTab === "reply" 
-                  ? "bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border-l-4 border-blue-600" 
-                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100"
+                  ? "bg-blue-50 dark:bg-purple-950/20 text-blue-700 dark:text-purple-400 border-l-4 border-blue-600 dark:border-purple-500" 
+                  : "text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-zinc-100"
               }`}
             >
               <div className="flex items-center gap-3">
-                <MessageSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <MessageSquare className="w-4 h-4 text-blue-600 dark:text-purple-400" />
                 <span>Asertivní odpovědi</span>
               </div>
               <ChevronRight className="w-3.5 h-3.5 opacity-60" />
@@ -1071,14 +1066,14 @@ export default function App() {
 
             <button 
               onClick={() => setActiveTab("dictionary")}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium text-sm transition-all ${
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg font-medium text-sm transition-all cursor-pointer ${
                 activeTab === "dictionary" 
-                  ? "bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 border-l-4 border-blue-600" 
-                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100"
+                  ? "bg-blue-50 dark:bg-purple-950/20 text-blue-700 dark:text-purple-400 border-l-4 border-blue-600 dark:border-purple-500" 
+                  : "text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-zinc-100"
               }`}
             >
               <div className="flex items-center gap-3">
-                <BookOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <BookOpen className="w-4 h-4 text-blue-600 dark:text-purple-400" />
                 <span>Odborný slovník ({OFFLINE_DICTIONARY.length + learnedWords.length})</span>
               </div>
               <ChevronRight className="w-3.5 h-3.5 opacity-60" />
@@ -1086,70 +1081,70 @@ export default function App() {
           </div>
 
           {/* SECURE AES-GCM LOCAL STORAGE DRAWER */}
-          <div className="mt-auto p-4 bg-white rounded-xl border border-slate-200 shadow-sm space-y-3">
+          <div className="mt-auto p-4 bg-white dark:bg-workspace-panel border border-slate-200 dark:border-white/10 rounded-lg shadow-xs space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
-                <Lock className="w-3 h-3 inline text-slate-500" /> AES-GCM Zabezpečení
+              <span className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-1 font-mono">
+                <Lock className="w-3 h-3 inline text-slate-500 dark:text-purple-500" /> AES-GCM SECURE_MODE
               </span>
               {isHistoryLocked ? (
-                <span className="text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded font-bold uppercase">Zamčeno</span>
+                <span className="text-[9px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 rounded font-mono font-bold uppercase">Zamčeno</span>
               ) : (
-                <span className="text-[9px] px-1.5 py-0.5 bg-green-100 text-green-800 rounded font-bold uppercase">Odemčeno</span>
+                <span className="text-[9px] px-1.5 py-0.5 bg-green-100 dark:bg-green-950/40 text-green-800 dark:text-green-400 rounded font-mono font-bold uppercase">Odemčeno</span>
               )}
             </div>
 
-            <p className="text-[10px] text-slate-500 leading-normal">
+            <p className="text-[10px] text-slate-500 dark:text-zinc-400 leading-normal font-sans">
               Vaše historie překladů a promptů je šifrována přímo v prohlížeči pomocí AES-GCM s PBKDF2 kódováním. Žádná nezašifrovaná data neopustí toto zařízení.
             </p>
 
             <div className="space-y-1.5">
-              <label className="text-[10px] font-semibold text-slate-600 block">Šifrovací heslo (passphrase):</label>
+              <label className="text-[10px] font-bold text-slate-500 dark:text-zinc-500 uppercase block tracking-wider font-mono">Šifrovací heslo:</label>
               <div className="relative">
                 <input 
                   type="password"
                   placeholder="Zadejte silné heslo..."
                   value={historyPassword}
                   onChange={(e) => setHistoryPassword(e.target.value)}
-                  className="w-full text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 pr-7"
+                  className="w-full text-xs px-2.5 py-1.5 bg-slate-50 dark:bg-black border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:border-blue-500 dark:focus:border-purple-500 pr-7 text-slate-900 dark:text-white"
                 />
-                <Key className="w-3.5 h-3.5 absolute right-2.5 top-2 text-slate-400" />
+                <Key className="w-3.5 h-3.5 absolute right-2.5 top-2 text-slate-400 dark:text-zinc-600" />
               </div>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 font-mono">
               {isHistoryLocked ? (
                 <button 
                   onClick={handleUnlockHistory}
-                  className="flex-1 py-1 px-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-all"
+                  className="flex-1 py-1.5 px-2.5 bg-blue-600 dark:bg-purple-600 hover:bg-blue-700 dark:hover:bg-purple-700 text-white rounded text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer border-none"
                 >
-                  <Unlock className="w-3 h-3" /> Dešifrovat
+                  <Unlock className="w-3 h-3" /> DEŠIFROVAT
                 </button>
               ) : (
                 <button 
                   onClick={handleLockHistory}
-                  className="flex-1 py-1 px-2.5 bg-slate-600 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-all"
+                  className="flex-1 py-1.5 px-2.5 bg-slate-600 dark:bg-zinc-800 hover:bg-slate-700 dark:hover:bg-zinc-700 text-white rounded text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer border-none"
                 >
-                  <Lock className="w-3 h-3" /> Uzamknout
+                  <Lock className="w-3 h-3" /> UZAMKNOUT
                 </button>
               )}
             </div>
 
             {encryptStatusMsg && (
-              <p className="text-[9px] font-medium text-blue-700 bg-blue-50 p-1.5 rounded border border-blue-100">
+              <p className="text-[9px] font-mono text-blue-700 dark:text-purple-400 bg-blue-50 dark:bg-purple-950/20 p-1.5 rounded border border-blue-100 dark:border-purple-900/30">
                 {encryptStatusMsg}
               </p>
             )}
 
             {/* Display list of history items only when unlocked */}
             {!isHistoryLocked && decryptedHistory.length > 0 && (
-              <div className="space-y-2 pt-2 border-t border-slate-100 max-h-48 overflow-y-auto">
-                <span className="text-[10px] font-semibold text-slate-500 block">Dešifrovaná historie ({decryptedHistory.length}):</span>
+              <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-white/5 max-h-48 overflow-y-auto">
+                <span className="text-[10px] font-semibold text-slate-500 dark:text-zinc-400 block font-mono uppercase tracking-wider">Dešifrovaná historie ({decryptedHistory.length}):</span>
                 {decryptedHistory.map((item) => (
-                  <div key={item.id} className="p-1.5 bg-slate-50 rounded border border-slate-100 relative group text-[10px]">
-                    <div className="font-bold text-slate-700 truncate pr-5">{item.title}</div>
-                    <div className="text-[9px] text-slate-400 mb-1">{item.timestamp}</div>
-                    <p className="text-slate-600 line-clamp-2 bg-white p-1 rounded border border-slate-100">{item.text}</p>
-                    <div className="flex gap-1.5 mt-1">
+                  <div key={item.id} className="p-1.5 bg-slate-50 dark:bg-black/40 rounded border border-slate-100 dark:border-white/5 relative group text-[10px]">
+                    <div className="font-bold text-slate-700 dark:text-zinc-300 truncate pr-5">{item.title}</div>
+                    <div className="text-[9px] text-slate-400 dark:text-zinc-500 mb-1">{item.timestamp}</div>
+                    <p className="text-slate-600 dark:text-zinc-400 line-clamp-2 bg-white dark:bg-black/60 p-1 rounded border border-slate-100 dark:border-white/5">{item.text}</p>
+                    <div className="flex gap-1.5 mt-1 font-mono">
                       <button 
                         onClick={() => {
                           if (activeTab === "rephrase") {
@@ -1159,13 +1154,13 @@ export default function App() {
                           }
                           setEncryptStatusMsg("Historická položka načtena do editoru.");
                         }}
-                        className="text-[9px] text-blue-600 hover:underline"
+                        className="text-[9px] text-blue-600 dark:text-purple-400 hover:underline"
                       >
                         Načíst
                       </button>
                       <button 
                         onClick={() => handleDeleteHistoryItem(item.id)}
-                        className="text-[9px] text-rose-600 hover:underline ml-auto"
+                        className="text-[9px] text-rose-600 dark:text-rose-400 hover:underline ml-auto"
                       >
                         Smazat
                       </button>
@@ -1439,52 +1434,65 @@ export default function App() {
 
           {/* TAB 2: AI PROMPT OPTIMIZER WITH AGENTIC LOOP */}
           {activeTab === "prompt" && (
-            <div className="flex-1 flex flex-col gap-6 min-h-0">
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight text-slate-900 font-display">Prompt Optimizer s Agentickou Smyčkou</h1>
-                <p className="text-sm text-slate-600">
-                  Přeložte obyčejně napsaný prompt do podoby, která umožní AI modelům lépe pochopit zadání a zajistí maximálně přesné výsledky. Funguje zcela offline s využitím předdefinovaných pravidel omezujících halucinace.
+            <div className="flex-1 flex flex-col gap-6 min-h-0 animate-fade-in">
+              <div className="header-block">
+                <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-display">Prompt Optimizer</h1>
+                <p className="text-sm text-slate-600 dark:text-zinc-400 leading-relaxed max-w-3xl">
+                  Technický engine pro strukturální analýzu a optimalizaci promptů prostřednictvím agentických cyklů: Návrh ➜ Kritika ➜ Sebe-korekce. Offline zpracování dat.
                 </p>
               </div>
 
               <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
                 {/* Input prompt area */}
                 <div className="flex-1 flex flex-col gap-3 min-h-[200px]">
-                  <label className="text-sm font-semibold text-slate-700">Zadejte Váš jednoduchý prompt:</label>
-                  <div className="flex-1 bg-white border border-slate-300 rounded-xl p-4 shadow-sm flex flex-col min-h-0 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
-                    <textarea
-                      value={inputPrompt}
-                      onChange={(e) => setInputPrompt(e.target.value)}
-                      placeholder="Napište jednoduchý nápad nebo prompt, např.: 'Napiš mi plán pro zdravý jídelníček' nebo 'Udělej analýzu prodeje aut v ČR'."
-                      className="w-full flex-1 resize-none border-0 p-0 focus:ring-0 focus:outline-none text-slate-800 leading-relaxed text-sm bg-transparent"
-                    />
-                    
-                    <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between shrink-0">
-                      <span className="text-[11px] text-slate-400">
-                        Smyčka automaticky provádí: <strong>Návrh ➜ Kritiku ➜ Sebe-korekci</strong>
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-slate-400 dark:text-zinc-500">Zadání jednoduchého nápadu nebo promptu:</span>
+                  <div className="flex-grow flex flex-col min-h-0">
+                    <div className="p-3 bg-slate-50 dark:bg-black/40 border-t border-r border-l border-slate-200 dark:border-white/10 flex items-center justify-between rounded-t-xl shrink-0">
+                      <span className="text-[10px] font-mono uppercase tracking-widest text-slate-500 dark:text-zinc-400 font-semibold flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-600 dark:bg-purple-500"></span>
+                        INPUT_BUFFER
                       </span>
-                      <button
-                        onClick={handleOptimizePrompt}
-                        disabled={!inputPrompt.trim() || isOptimizing}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
-                      >
-                        <Cpu className="w-3.5 h-3.5" />
-                        {isOptimizing ? "Smyčka běží..." : "Spustit optimalizační smyčku"}
-                      </button>
+                      <span className="text-[9px] font-mono bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                        PLAIN_TEXT
+                      </span>
+                    </div>
+
+                    <div className="flex-1 bg-white dark:bg-workspace-panel border border-slate-200 dark:border-white/10 rounded-b-xl flex flex-col min-h-0 focus-within:ring-1 focus-within:ring-blue-500 dark:focus-within:ring-purple-500 transition-all">
+                      <textarea
+                        value={inputPrompt}
+                        onChange={(e) => setInputPrompt(e.target.value)}
+                        placeholder="Napište jednoduchý nápad nebo prompt, např.: 'Napiš mi plán pro zdravý jídelníček' nebo 'Udělej analýzu prodeje aut v ČR'..."
+                        className="w-full flex-1 resize-none border-0 p-4 focus:ring-0 focus:outline-none text-slate-800 dark:text-zinc-200 leading-relaxed text-sm bg-transparent font-mono"
+                      />
+                      
+                      <div className="p-3 bg-slate-50 dark:bg-black/20 border-t border-slate-100 dark:border-white/10 flex items-center justify-between shrink-0 rounded-b-xl">
+                        <span className="text-[9px] font-mono uppercase tracking-wider text-slate-400 dark:text-zinc-500">
+                          Automated agent logic enabled // [Offline-Ready]
+                        </span>
+                        <button
+                          onClick={handleOptimizePrompt}
+                          disabled={!inputPrompt.trim() || isOptimizing}
+                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 dark:bg-purple-600 dark:hover:bg-purple-700 disabled:bg-slate-300 dark:disabled:bg-zinc-800 text-white dark:disabled:text-zinc-500 rounded font-mono font-bold text-xs transition-all shadow-xs flex items-center gap-1.5 cursor-pointer border-none"
+                        >
+                          <Cpu className="w-3.5 h-3.5" />
+                          {isOptimizing ? "RUNNING_LOOP..." : "EXECUTE_LOOP"}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
 
                 {/* Steps and output progress */}
                 <div className="flex-1 flex flex-col gap-3 min-h-[250px]">
-                  <label className="text-sm font-semibold text-slate-700">Postupné kroky agentické smyčky & Finální Prompt:</label>
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-slate-400 dark:text-zinc-500">Strukturální zpětná vazba & Výstupní proud:</span>
                   
-                  <div className="flex-1 bg-white border border-slate-200 rounded-xl flex flex-col shadow-sm min-h-0">
-                    <div className="p-4 border-b border-slate-100 bg-slate-50 rounded-t-xl shrink-0 flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-                        <Sparkles className="w-3.5 h-3.5 text-amber-500" /> Výstupní struktura promptu
+                  <div className="flex-1 flex flex-col min-h-0">
+                    <div className="p-3 bg-slate-50 dark:bg-black/40 border-t border-r border-l border-slate-200 dark:border-white/10 flex items-center justify-between rounded-t-xl shrink-0">
+                      <span className="text-[10px] font-mono uppercase tracking-widest text-slate-500 dark:text-zinc-400 font-semibold flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                        OUTPUT_STREAM
                       </span>
-                      {finalOptimizedPrompt && (
+                      {finalOptimizedPrompt ? (
                         <div className="flex items-center gap-2">
                           <button 
                             onClick={() => {
@@ -1492,53 +1500,63 @@ export default function App() {
                               setIsCopied(true);
                               setTimeout(() => setIsCopied(false), 2000);
                             }}
-                            className="text-xs text-slate-600 hover:text-blue-600 flex items-center gap-1"
+                            className="text-[10px] font-mono text-slate-600 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-purple-400 flex items-center gap-1 bg-transparent border-none cursor-pointer"
                           >
                             {isCopied ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
-                            <span>Kopírovat finální prompt</span>
+                            <span>{isCopied ? "COPIED" : "COPY_PROMPT"}</span>
                           </button>
                           <button 
                             onClick={handleSaveToHistory}
-                            className="text-xs text-slate-600 hover:text-blue-600 flex items-center gap-1 ml-2"
+                            className="text-[10px] font-mono text-slate-600 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-purple-400 flex items-center gap-1 ml-2 bg-transparent border-none cursor-pointer"
                           >
                             <Lock className="w-3.5 h-3.5 text-slate-400" />
-                            <span>Uložit šifrovaně</span>
+                            <span>VAULT_SAVE</span>
                           </button>
                         </div>
+                      ) : (
+                        <span className="text-[9px] font-mono bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                          OPTIMIZED
+                        </span>
                       )}
                     </div>
 
-                    <div className="p-5 flex-1 overflow-y-auto space-y-4 min-h-0">
-                      {isOptimizing ? (
-                        <div className="flex flex-col items-center justify-center py-12 text-slate-500 gap-3">
-                          <RefreshCw className="w-8 h-8 text-blue-600 animate-spin" />
-                          <p className="text-xs font-semibold uppercase tracking-wider animate-pulse">
-                            Smyčka běží bez nutnosti lidského zdržování...
-                          </p>
-                          <div className="text-[11px] text-slate-400 max-w-xs text-center">
-                            Generuji detailní návrh, spouštím kritický posudek a aplikuji korekční šablonu pro optimální výsledek.
-                          </div>
-                        </div>
-                      ) : optimizerSteps.length > 0 ? (
-                        <div className="space-y-4">
-                          {optimizerSteps.map((step, index) => (
-                            <div key={index} className="border border-slate-200 rounded-lg p-3 bg-slate-50">
-                              <h4 className="text-xs font-bold text-blue-800 border-b border-blue-100 pb-1 mb-2 flex items-center gap-1.5">
-                                <ChevronRight className="w-3.5 h-3.5" /> {step.title}
-                              </h4>
-                              <pre className="text-xs text-slate-700 whitespace-pre-wrap font-mono leading-relaxed bg-white p-2.5 rounded border border-slate-150">
-                                {step.content}
-                              </pre>
+                    <div className="flex-1 bg-white dark:bg-workspace-panel border border-slate-200 dark:border-white/10 rounded-b-xl flex flex-col shadow-xs min-h-0">
+                      <div className="p-5 flex-1 overflow-y-auto space-y-4 min-h-0">
+                        {isOptimizing ? (
+                          <div className="flex flex-col items-center justify-center py-16 text-slate-500 dark:text-zinc-500 gap-4">
+                            <RefreshCw className="w-8 h-8 text-blue-600 dark:text-purple-500 animate-spin" />
+                            <div className="text-center space-y-1">
+                              <p className="text-xs font-mono font-bold uppercase tracking-wider animate-pulse text-blue-600 dark:text-purple-400">
+                                AGENT_LOOP_ACTIVE
+                              </p>
+                              <p className="text-[11px] text-slate-400 dark:text-zinc-500 max-w-xs leading-relaxed mx-auto">
+                                Generuji detailní návrh, spouštím kritický posudek a aplikuji korekční šablonu...
+                              </p>
                             </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-slate-400 text-center py-12 flex flex-col items-center justify-center gap-2">
-                          <Cpu className="w-10 h-10 text-slate-300" />
-                          <p className="text-xs">Optimalizační proces nebyl spuštěn.</p>
-                          <p className="text-[11px]">Napište svůj prompt vlevo a klikněte na tlačítko výše.</p>
-                        </div>
-                      )}
+                          </div>
+                        ) : optimizerSteps.length > 0 ? (
+                          <div className="space-y-4">
+                            {optimizerSteps.map((step, index) => (
+                              <div key={index} className="border border-slate-200 dark:border-white/5 rounded-lg p-3 bg-slate-50 dark:bg-black/20">
+                                <h4 className="text-xs font-mono font-bold text-blue-800 dark:text-purple-400 border-b border-blue-100 dark:border-purple-900/30 pb-1 mb-2 flex items-center gap-1.5 uppercase tracking-wider">
+                                  <ChevronRight className="w-3.5 h-3.5" /> {step.title}
+                                </h4>
+                                <pre className="text-xs text-slate-700 dark:text-zinc-300 whitespace-pre-wrap font-mono leading-relaxed bg-white dark:bg-black p-2.5 rounded border border-slate-150 dark:border-white/5">
+                                  {step.content}
+                                </pre>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-slate-400 dark:text-zinc-600 text-center py-24 flex flex-col items-center justify-center gap-4 flex-grow">
+                            <svg className="w-8 h-8 text-slate-300 dark:text-zinc-700 stroke-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                            <div style={{ textAlign: 'center' }}>
+                              <p className="font-mono text-xs text-slate-700 dark:text-zinc-400">Awaiting loop execution...</p>
+                              <p className="text-[10px] text-slate-400 dark:text-zinc-500 mt-1">Initialize input buffer to start.</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
