@@ -23,24 +23,51 @@ try {
   console.error("Failed to initialize GoogleGenAI:", e);
 }
 
+// Keep track of temporarily unhealthy models to avoid sluggish failover times
+const modelHealthStatus: Record<string, number> = {};
+
 // Helper function to call Gemini with retries and a fallback model to handle transient 503/rate-limit errors
 async function generateContentWithRetry(params: {
   contents: string;
   config: {
     systemInstruction: string;
     temperature: number;
+    responseMimeType?: string;
+    responseSchema?: any;
   };
 }) {
   if (!ai) {
     throw new Error("Gemini API is not configured on the server. Please configure GEMINI_API_KEY in the Secrets panel.");
   }
 
-  // Use gemini-3.5-flash as the primary highly stable free-tier model, falling back to gemini-3.1-flash-lite and gemini-flash-latest if experiencing transient issues (503/429)
+  const now = Date.now();
   const modelsToTry = ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
+  
+  // Sort models: healthy ones first, then unhealthy ones
+  const sortedModels = [...modelsToTry].sort((a, b) => {
+    const aUnhealthyUntil = modelHealthStatus[a] || 0;
+    const bUnhealthyUntil = modelHealthStatus[b] || 0;
+    
+    const aIsUnhealthy = now < aUnhealthyUntil;
+    const bIsUnhealthy = now < bUnhealthyUntil;
+    
+    if (aIsUnhealthy && !bIsUnhealthy) return 1;
+    if (!aIsUnhealthy && bIsUnhealthy) return -1;
+    return 0;
+  });
+
   let lastError: any = null;
 
-  for (const model of modelsToTry) {
-    const maxAttempts = 2;
+  for (const model of sortedModels) {
+    // Check if currently unhealthy - if so, only try it as an absolute last resort
+    const isUnhealthy = now < (modelHealthStatus[model] || 0);
+    if (isUnhealthy) {
+      console.log(`[Gemini API] Bypassing ${model} initially because it is marked temporarily unhealthy/overloaded.`);
+    }
+
+    const maxAttempts = isUnhealthy ? 1 : 2; // only try once if it was marked unhealthy
+    let succeeded = false;
+
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         console.log(`[Gemini API] Requesting ${model} (Attempt ${attempt}/${maxAttempts})...`);
@@ -51,26 +78,36 @@ async function generateContentWithRetry(params: {
         });
         
         if (response && response.text) {
+          succeeded = true;
+          // Clear any unhealthy status if it succeeded!
+          delete modelHealthStatus[model];
           return response;
         }
         throw new Error("Received empty response from model");
       } catch (err: any) {
         lastError = err;
         const errMsg = err.message || (typeof err === "string" ? err : JSON.stringify(err));
-        console.warn(`[Gemini API Warning] Model ${model} failed on attempt ${attempt}:`, errMsg);
+        console.log(`[Gemini API Info] Model ${model} failed on attempt ${attempt} (retrying/falling back):`, errMsg);
         
-        // Check if quota is exceeded (429 or RESOURCE_EXHAUSTED) to skip useless retries on this model
-        const isQuotaExceeded = 
+        // Check if quota is exceeded (429 or RESOURCE_EXHAUSTED) or unavailable (503) to skip useless retries on this model
+        const isQuotaOrUnavailable = 
           err.status === "RESOURCE_EXHAUSTED" || 
+          err.status === "UNAVAILABLE" ||
           err.status === 429 || 
+          err.status === 503 ||
           err.statusCode === 429 || 
+          err.statusCode === 503 ||
           errMsg.toLowerCase().includes("quota") || 
           errMsg.toLowerCase().includes("429") ||
+          errMsg.toLowerCase().includes("503") ||
           errMsg.toLowerCase().includes("rate limit") ||
+          errMsg.toLowerCase().includes("unavailable") ||
+          errMsg.toLowerCase().includes("high demand") ||
           errMsg.toLowerCase().includes("resource_exhausted");
 
-        if (isQuotaExceeded) {
-          console.warn(`[Gemini API] Quota exceeded for ${model}. Skipping retries of this model and switching to next fallback...`);
+        if (isQuotaOrUnavailable) {
+          console.log(`[Gemini API] Quota/Unavailability exceeded for ${model}. Marking unhealthy and switching instantly to fallback...`);
+          modelHealthStatus[model] = Date.now() + 3 * 60 * 1000; // mark unhealthy for 3 minutes
           break; // skip remaining attempts for this model
         }
 
@@ -80,6 +117,11 @@ async function generateContentWithRetry(params: {
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
+    }
+
+    if (!succeeded) {
+      // Mark unhealthy if both attempts failed
+      modelHealthStatus[model] = Date.now() + 3 * 60 * 1000;
     }
   }
 
@@ -175,56 +217,65 @@ app.post("/api/optimize-prompt", async (req, res) => {
   }
 
   try {
-    const steps: Array<{ title: string; content: string }> = [];
+    const systemInstruction = 
+      "Jste špičkový expert na prompt engineering a agentní systémy (smyčky zpětné vazby). " +
+      "Uživatel vám poslal základní (hrubé) zadání promptu. Vaším úkolem je simulovat vnitřní tvořivý cyklus (Draft -> Kritik -> Korekce) a vrátit kompletní výsledek v jednom kroku.\n\n" +
+      "Musíte vytvořit přesně tři části:\n" +
+      "1. DRAFT (Návrh optimalizovaného promptu): Vysoce strukturovaná verze v markdownu definující Roli, Kontext, Instrukce krok za krokem a očekávaný formát výstupu.\n" +
+      "2. CRITIQUE (Kritická analýza a detekce chyb): Přísný rozbor draftu v češtině, identifikujte alespoň 2 potenciální slabiny, nejasnosti nebo mezery, kde by model mohl chybovat.\n" +
+      "3. FINAL (Finální zpřesnění): Kompletně vylepšená finální verze promptu v markdownu, která stoprocentně řeší nalezené chyby z kritické analýzy a doplňuje explicitní negativní omezení k zamezení halucinací.\n\n" +
+      "Výstup MUSÍ být pouze čistý a validní JSON objekt odpovídající schématu:\n" +
+      "{\n" +
+      "  \"draft\": \"(zde napište detailní text prvního návrhu v markdownu)\",\n" +
+      "  \"critique\": \"(zde napište kritickou analýzu v češtině v odrážkách)\",\n" +
+      "  \"finalPrompt\": \"(zde napište kompletní finální vylepšený prompt v markdownu)\"\n" +
+      "}\n\n" +
+      "Odpovězte pouze ve formátu JSON, bez jakýchkoli markdownových obalů typu ```json a ```.";
 
-    // Step 1: Initial draft of optimized prompt
-    const step1Response = await generateContentWithRetry({
-      contents: `Target user basic prompt:\n"${prompt}"\n\nGenerate a highly structured, professional version of this prompt using markdown. Define Role/Persona, Context, Task details, Constraints, and Expected Output format. Do not add conversational intro.`,
+    const response = await generateContentWithRetry({
+      contents: `Základní prompt k optimalizaci:\n"${prompt}"`,
       config: {
-        systemInstruction: "You are an expert prompt engineer. Your job is to transform a basic prompt into a structured, highly effective instruction for advanced AI models.",
+        systemInstruction,
         temperature: 0.5,
+        responseMimeType: "application/json",
       },
-    });
-    const draftPrompt = step1Response.text || "";
-    steps.push({
-      title: "1. Návrh optimalizovaného promptu",
-      content: draftPrompt.trim(),
     });
 
-    // Step 2: Agentic Critique Loop - Analysis of potential weak points
-    const step2Response = await generateContentWithRetry({
-      contents: `Draft Prompt:\n${draftPrompt}\n\nAnalyze this draft. Identify at least 2 potential points of ambiguity or gaps where a model might fail, misinterpret, or produce inaccurate outputs. List these specific issues in Czech in bullet points.`,
-      config: {
-        systemInstruction: "You are a critical reviewer of AI prompts. Analyze instructions to find logical loopholes, ambiguous boundaries, or lacking constraints.",
-        temperature: 0.3,
-      },
-    });
-    const critique = step2Response.text || "";
-    steps.push({
-      title: "2. Kritická analýza a detekce chyb (Kritik)",
-      content: critique.trim(),
-    });
+    const rawText = response.text || "";
+    let cleanJson = rawText.trim();
+    if (cleanJson.startsWith("```")) {
+      cleanJson = cleanJson.replace(/^```json\s*/i, "").replace(/```$/, "").trim();
+    }
 
-    // Step 3: Self-Correction & Final refinement
-    const step3Response = await generateContentWithRetry({
-      contents: `Draft Prompt:\n${draftPrompt}\n\nCritique feedback:\n${critique}\n\nProduce the final optimized prompt by completely resolving the critique issues. Enhance the prompt with explicit negative constraints to avoid hallucinations. Output ONLY the final refined markdown prompt.`,
-      config: {
-        systemInstruction: "You are a master prompt engineering compiler. Your output should be a single, complete, polished markdown block of the optimized prompt, with all critique recommendations fully integrated.",
-        temperature: 0.4,
+    let parsed;
+    try {
+      parsed = JSON.parse(cleanJson);
+    } catch (parseErr) {
+      console.log("[Prompt Optimizer] JSON parse failed, trying to rescue or use standard fallback parsing:", parseErr);
+      throw new Error("Nepodařilo se zpracovat strukturovanou odpověď od AI modelů. Zkuste to prosím znovu.");
+    }
+
+    const steps = [
+      {
+        title: "1. Návrh optimalizovaného promptu",
+        content: parsed.draft || "Návrh se nepodařilo vygenerovat.",
       },
-    });
-    const finalPrompt = step3Response.text || "";
-    steps.push({
-      title: "3. Finální zpřesnění na základě kritiky",
-      content: finalPrompt.trim(),
-    });
+      {
+        title: "2. Kritická analýza a detekce chyb (Kritik)",
+        content: parsed.critique || "Kritika se nepodařilo vygenerovat.",
+      },
+      {
+        title: "3. Finální zpřesnění na základě kritiky",
+        content: parsed.finalPrompt || parsed.final || "Finální prompt se nepodařilo vygenerovat.",
+      }
+    ];
 
     res.json({
       steps,
-      optimizedPrompt: finalPrompt.trim(),
+      optimizedPrompt: (parsed.finalPrompt || parsed.final || "").trim(),
     });
   } catch (error: any) {
-    console.error("Prompt Optimizer API Error:", error);
+    console.log("Prompt Optimizer API Error:", error);
     res.status(500).json({ error: error.message || "An error occurred during prompt optimization." });
   }
 });

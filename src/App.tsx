@@ -31,7 +31,16 @@ import {
   Shield,
   Sun,
   Moon,
-  Brain
+  Brain,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+  Smartphone,
+  Sliders,
+  Play,
+  Headphones,
+  Keyboard
 } from "lucide-react";
 import { OFFLINE_DICTIONARY, AUTOCOMPLETE_VOCABULARY, TermEntry } from "./data";
 import { encryptText, decryptText } from "./utils/crypto";
@@ -58,6 +67,27 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"rephrase" | "prompt" | "dictionary" | "explain" | "reply">("rephrase");
   const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== "undefined" ? navigator.onLine : true);
 
+  // Web Speech API and voice helper states
+  const [isListeningRephrase, setIsListeningRephrase] = useState<boolean>(false);
+  const [isListeningPrompt, setIsListeningPrompt] = useState<boolean>(false);
+  const [isListeningReply, setIsListeningReply] = useState<boolean>(false);
+
+  // iPhone Local Companion Mode & Voice over / Clone states
+  const [isIPhoneMode, setIsIPhoneMode] = useState<boolean>(false);
+  const [useOfflineSLM, setUseOfflineSLM] = useState<boolean>(false);
+  const [voiceTonePreset, setVoiceTonePreset] = useState<"kind" | "factual" | "uncompromising" | "clone">("uncompromising");
+  const [userPitch, setUserPitch] = useState<number>(0.9);
+  const [userRate, setUserRate] = useState<number>(1.0);
+  const [tripleReplies, setTripleReplies] = useState<{
+    kind: { analysis: string; strategy: string; reply: string };
+    factual: { analysis: string; strategy: string; reply: string };
+    uncompromising: { analysis: string; strategy: string; reply: string };
+  } | null>(null);
+  const [isGeneratingTriple, setIsGeneratingTriple] = useState<boolean>(false);
+  const [selectedTripleVoiceIndex, setSelectedTripleVoiceIndex] = useState<number | null>(null);
+  const [isListeningForVoiceChoice, setIsListeningForVoiceChoice] = useState<boolean>(false);
+  const [voiceChoiceStatus, setVoiceChoiceStatus] = useState<string>("");
+
   // Theme state
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     return typeof window !== "undefined" && localStorage.getItem("lexiflow_theme") === "dark";
@@ -73,6 +103,29 @@ export default function App() {
     }
   }, [isDarkMode]);
 
+  // Bluetooth key selection listener (1, 2, 3)
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      // Avoid triggering if user is actively typing in an input/textarea
+      if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") {
+        return;
+      }
+      if (activeTab === "reply" && isIPhoneMode && tripleReplies) {
+        if (e.key === "1") {
+          handleSelectTripleVoiceIndex(1);
+        } else if (e.key === "2") {
+          handleSelectTripleVoiceIndex(2);
+        } else if (e.key === "3") {
+          handleSelectTripleVoiceIndex(3);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyPress);
+    return () => {
+      window.removeEventListener("keydown", handleKeyPress);
+    };
+  }, [activeTab, isIPhoneMode, tripleReplies, voiceTonePreset, userPitch, userRate]);
+
   // Self-learning State
   const [learnedWords, setLearnedWords] = useState<TermEntry[]>(() => {
     if (typeof window === "undefined") return [];
@@ -82,6 +135,11 @@ export default function App() {
 
   const [learningStatus, setLearningStatus] = useState<string | null>(null);
   const [isLearning, setIsLearning] = useState<boolean>(false);
+  const [isLearningEnabled, setIsLearningEnabled] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const stored = localStorage.getItem("lexiflow_learning_enabled");
+    return stored !== "false";
+  });
 
   // Pool of terms to learn from offline heuristically
   const OFFLINE_LEARNABLE_POOL = [
@@ -107,7 +165,7 @@ export default function App() {
       english: "Synergy",
       category: "Finance & Ekonomika",
       context: "Spojením našich týmů vznikla silná synergie, která urychlila vývoj projektu.",
-      level3: "Kooperativní interakce dvou či více autonomních činitelů, u níž celkový emergentní efekt převyšuje prostou aditivní sumu individuálních příspěvků."
+      level3: "Kooperativní interakce dvou či více autonomních činitelů, u níž celkový emergentní efekt převyšuje prostou aditivní sumu individuických příspěvků."
     },
     {
       term: "Dichotomie",
@@ -135,8 +193,302 @@ export default function App() {
     }
   ];
 
+  // Speech Recognition & Synthesis Engine
+  const startVoiceToText = (
+    lang: string, 
+    onTranscript: (text: string) => void, 
+    onListeningState: (state: boolean) => void
+  ) => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Hlasové rozpoznávání není ve vašem prohlížeči podporováno. Zkuste prosím Google Chrome nebo Safari.");
+      return;
+    }
+
+    try {
+      const rec = new SpeechRecognition();
+      rec.continuous = false;
+      rec.lang = lang;
+      rec.interimResults = false;
+
+      rec.onstart = () => {
+        onListeningState(true);
+      };
+
+      rec.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript) {
+          onTranscript(transcript);
+        }
+      };
+
+      rec.onerror = (err: any) => {
+        console.error("Speech recognition error", err);
+        onListeningState(false);
+      };
+
+      rec.onend = () => {
+        onListeningState(false);
+      };
+
+      rec.start();
+    } catch (e) {
+      console.error(e);
+      onListeningState(false);
+    }
+  };
+
+  const speakText = (
+    text: string, 
+    preset: "kind" | "factual" | "uncompromising" | "clone", 
+    pitchVal: number = 0.9, 
+    rateVal: number = 1.0
+  ) => {
+    if (typeof window === "undefined" || !window.speechSynthesis) {
+      console.warn("Speech synthesis is not supported on this device.");
+      return;
+    }
+    
+    // Stop any ongoing speech
+    window.speechSynthesis.cancel();
+    
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "cs-CZ"; // default to Czech language
+    
+    // Configure voice tones
+    if (preset === "kind") {
+      utterance.pitch = 1.25; // Warmer, slightly higher pitch
+      utterance.rate = 0.92;  // Slower, kind tempo
+    } else if (preset === "factual") {
+      utterance.pitch = 1.0;  // Standard neutral pitch
+      utterance.rate = 1.05;  // Slightly faster, direct tempo
+    } else if (preset === "uncompromising") {
+      utterance.pitch = 0.78; // Deeper, firm pitch
+      utterance.rate = 0.85;  // Slow, uncompromising tempo
+    } else if (preset === "clone") {
+      utterance.pitch = pitchVal;
+      utterance.rate = rateVal;
+    }
+    
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const generateOfflineTripleReplies = (msg: string) => {
+    const cleanMsg = msg.toLowerCase();
+    
+    let analysisKind = "Tato zpráva se snaží nátlakem vyvolat pocit viny. Zvolíme diplomatický nadhled s neprůstřelnými, ale laskavými hranicemi.";
+    let strategyKind = "Reagujte s vysokým statusem, klidně, bez emocí a s porozuměním, abyste oponenta odzbrojili.";
+    let replyKind = "Děkuji za zprávu. Chápu, že máte na věc jiný pohled a záleží vám na výsledku. Moje priority a kapacity jsou však v tuto chvíli plně vytížené, proto nemohu vyhovět. Věřím, že najdete jiné řešení.";
+
+    let analysisFactual = "Zpráva vykazuje známky manipulace s časem. Použijeme čistá fakta k okamžitému odmítnutí nátlaku.";
+    let strategyFactual = "Uveďte suchá fakta bez omluv, vysvětlování nebo jakýchkoli emocí.";
+    let replyFactual = "Moje kapacita je v tuto chvíli plná. Na projektu budu moci pokračovat nejdříve od pondělí. Beru na vědomí vaše stanovisko.";
+
+    let analysisUncompromising = "Hrubé porušení osobních hranic a snaha o citový nátlak. Odpověď musí být ledově klidná a okamžitě zastavit jakékoli spekulace.";
+    let strategyUncompromising = "Dát najevo absolutní nezájem o obhajobu a pevně uzavřít celou záležitost s vysokým asertivním štítem.";
+    let replyUncompromising = "Vaši zprávu beru na vědomí, nicméně mé rozhodnutí je pevně dané a nebudu ho měnit. Další diskuse na toto téma je bezpředmětná.";
+
+    // Custom heuristics based on key words
+    if (cleanMsg.includes("musíš") || cleanMsg.includes("okamžitě") || cleanMsg.includes("hned")) {
+      analysisKind = "Příchozí text vyvíjí silnou časovou tíseň. Chápeme jejich stres, ale nenecháme se strhnout.";
+      replyKind = "Chápu, že spěcháte a projekt hoří. Moje současné úkoly mi ale nedovolují reagovat okamžitě. Ozvu se vám, jakmile to bude možné.";
+      
+      analysisFactual = "Agresivní časový nátlak. Odpovíme věcně se stanovením konkrétního reálného termínu.";
+      replyFactual = "Dnes nejsem k dispozici. Na zprávu odpovím zítra dopoledne.";
+
+      analysisUncompromising = "Manipulativní pokus o diktování vašeho času. Nastolíme tvrdé a nekompromisní ticho.";
+      replyUncompromising = "Tento způsob komunikace a nátlaku je pro mě nepřijatelný. Na vaše požadavky odpovím, jakmile to bude v mých časových možnostech.";
+    } else if (cleanMsg.includes("zklamal") || cleanMsg.includes("vina") || cleanMsg.includes("kvůli tobě")) {
+      analysisKind = "Pokus o citové vydírání a vyvolání viny. Zůstaneme vřelí, ale neustoupíme ani o krok.";
+      replyKind = "Mrzí mě, že jste zklamaný. Moje kroky však vycházejí z předem domluvených podmínek a nemohu je měnit. Přeji vám hodně úspěchů.";
+
+      analysisFactual = "Citový útok na vaše svědomí. Oprostíme se od pocitů a vrátíme se k dohodě.";
+      replyFactual = "Postupuji v souladu se smlouvou a dohodnutým harmonogramem. Vaše obvinění se nezakládají na faktech.";
+
+      analysisUncompromising = "Toxické citové vydírání. Kompletní neprůstřelný štít bez diskuze.";
+      replyUncompromising = "Nenechám se vmanipulovat do pocitu viny za vaše očekávání. Naše dohoda platí tak, jak byla sepsána.";
+    }
+
+    return {
+      kind: { analysis: analysisKind, strategy: strategyKind, reply: replyKind },
+      factual: { analysis: analysisFactual, strategy: strategyFactual, reply: replyFactual },
+      uncompromising: { analysis: analysisUncompromising, strategy: strategyUncompromising, reply: replyUncompromising }
+    };
+  };
+
+  const handleGenerateTripleReplies = async (msg: string) => {
+    if (!msg.trim()) return;
+    setIsGeneratingTriple(true);
+    setReplyError(null);
+    setSelectedTripleVoiceIndex(null);
+
+    if (useOfflineSLM || !isOnline) {
+      setTimeout(() => {
+        const result = generateOfflineTripleReplies(msg);
+        setTripleReplies(result);
+        setIsGeneratingTriple(false);
+        triggerSelfLearning(msg, result.uncompromising.reply);
+        
+        // Start voice navigation prompt after short delay
+        setTimeout(() => {
+          speakTripleOptionsPrompt();
+        }, 1200);
+      }, 800);
+      return;
+    }
+
+    try {
+      const [resUncompromising, resConfident, resDirect] = await Promise.all([
+        fetch("/api/generate-assertive-reply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ receivedMessage: msg, toneStyle: "uncompromising" })
+        }),
+        fetch("/api/generate-assertive-reply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ receivedMessage: msg, toneStyle: "confident" })
+        }),
+        fetch("/api/generate-assertive-reply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ receivedMessage: msg, toneStyle: "direct" })
+        })
+      ]);
+
+      if (!resUncompromising.ok || !resConfident.ok || !resDirect.ok) {
+        throw new Error("Chyba při stahování některého ze stylů ze serveru.");
+      }
+
+      const [dataUncompromising, dataConfident, dataDirect] = await Promise.all([
+        resUncompromising.json(),
+        resConfident.json(),
+        resDirect.json()
+      ]);
+
+      const parseOutput = (text: string, defaultTitle: string) => {
+        const sections = {
+          analysis: "",
+          strategy: "",
+          reply: ""
+        };
+        const analysisIndex = text.indexOf("### 🧠 PSYCHOLOGICKÝ ROZBOR");
+        const strategyIndex = text.indexOf("### 🛡️ DOPORUČENÁ STRATEGIE");
+        const replyIndex = text.indexOf("### 💬 NAVRŽENÁ ODPOVĚĎ");
+
+        if (analysisIndex !== -1 && strategyIndex !== -1) {
+          sections.analysis = text.substring(analysisIndex + 28, strategyIndex).trim();
+        } else {
+          sections.analysis = "Rozbor byl úspěšně vygenerován modelovým asistentem.";
+        }
+
+        if (strategyIndex !== -1 && replyIndex !== -1) {
+          sections.strategy = text.substring(strategyIndex + 25, replyIndex).trim();
+        } else {
+          sections.strategy = "Použijte asertivní strategii k vytyčení hranice.";
+        }
+
+        if (replyIndex !== -1) {
+          sections.reply = text.substring(replyIndex + 23).trim();
+        } else {
+          sections.reply = text.replace(/###.*/g, "").trim() || "Trvám na svém stanovisku.";
+        }
+        return sections;
+      };
+
+      const result = {
+        kind: parseOutput(dataConfident.output || "", "Laskavý"),
+        factual: parseOutput(dataDirect.output || "", "Faktický"),
+        uncompromising: parseOutput(dataUncompromising.output || "", "Nekompromisní")
+      };
+
+      setTripleReplies(result);
+      triggerSelfLearning(msg, result.uncompromising.reply);
+
+      setTimeout(() => {
+        speakTripleOptionsPrompt();
+      }, 1200);
+    } catch (e: any) {
+      console.error(e);
+      setReplyError("Vzdálené generování selhalo. Přepínám na lokální SLM model.");
+      const result = generateOfflineTripleReplies(msg);
+      setTripleReplies(result);
+      
+      setTimeout(() => {
+        speakTripleOptionsPrompt();
+      }, 1200);
+    } finally {
+      setIsGeneratingTriple(false);
+    }
+  };
+
+  const speakTripleOptionsPrompt = () => {
+    const textPrompt = "Návrhy byly vygenerovány. Vyberte odpověď pro poslech nebo odeslání. Řekněte jedna pro laskavou, dva pro faktickou, nebo tři pro nekompromisní.";
+    speakText(textPrompt, "factual");
+    
+    setVoiceChoiceStatus("Čekám na vaši hlasovou volbu (Řekněte 'jedna', 'dva' nebo 'tři')...");
+    setTimeout(() => {
+      startListeningForVoiceSelection();
+    }, 6000);
+  };
+
+  const startListeningForVoiceSelection = () => {
+    setVoiceChoiceStatus("Naslouchám vaší volbě...");
+    setIsListeningForVoiceChoice(true);
+
+    startVoiceToText("cs-CZ", (transcript) => {
+      const cleanTranscript = transcript.toLowerCase().trim();
+      setVoiceChoiceStatus(`Slyšel jsem: "${transcript}"`);
+      
+      let indexSelected = null;
+      if (cleanTranscript.includes("jedna") || cleanTranscript.includes("jeden") || cleanTranscript.includes("laskav") || cleanTranscript.includes("1")) {
+        indexSelected = 1;
+      } else if (cleanTranscript.includes("dva") || cleanTranscript.includes("druh") || cleanTranscript.includes("faktic") || cleanTranscript.includes("2")) {
+        indexSelected = 2;
+      } else if (cleanTranscript.includes("tři") || cleanTranscript.includes("tri") || cleanTranscript.includes("tret") || cleanTranscript.includes("nekompromis") || cleanTranscript.includes("3")) {
+        indexSelected = 3;
+      }
+
+      if (indexSelected !== null) {
+        handleSelectTripleVoiceIndex(indexSelected);
+      } else {
+        setVoiceChoiceStatus(`Nerozpoznáno (Slyšel jsem: "${transcript}"). Řekněte prosím jasně 'jedna', 'dva' nebo 'tři'.`);
+        speakText("Nerozuměla jsem. Řekněte prosím jedna, dva, nebo tři.", "factual");
+      }
+    }, (listening) => {
+      setIsListeningForVoiceChoice(listening);
+    });
+  };
+
+  const handleSelectTripleVoiceIndex = (index: number) => {
+    setSelectedTripleVoiceIndex(index);
+    if (!tripleReplies) return;
+
+    let selectedText = "";
+    let stylePreset: "kind" | "factual" | "uncompromising" | "clone" = voiceTonePreset;
+    let styleName = "";
+
+    if (index === 1) {
+      selectedText = tripleReplies.kind.reply;
+      styleName = "Laskavá";
+      if (voiceTonePreset !== "clone") stylePreset = "kind";
+    } else if (index === 2) {
+      selectedText = tripleReplies.factual.reply;
+      styleName = "Faktická";
+      if (voiceTonePreset !== "clone") stylePreset = "factual";
+    } else if (index === 3) {
+      selectedText = tripleReplies.uncompromising.reply;
+      styleName = "Nekompromisní";
+      if (voiceTonePreset !== "clone") stylePreset = "uncompromising";
+    }
+
+    setVoiceChoiceStatus(`Vybrána ${styleName} odpověď. Čtu text.`);
+    speakText(`Vybrána ${styleName} odpověď: ` + selectedText, stylePreset, userPitch, userRate);
+  };
+
   // Self-learning triggers
   const triggerSelfLearning = async (inputVal: string, outputVal: string) => {
+    if (!isLearningEnabled) return;
     if (!inputVal || !outputVal) return;
     
     if (!isOnline) {
@@ -857,6 +1209,50 @@ export default function App() {
     }
   };
 
+  const handleSaveToHistoryCustomText = async (title: string, textToSave: string) => {
+    if (!textToSave) {
+      setEncryptStatusMsg("Není k dispozici žádný výsledek pro uložení.");
+      return;
+    }
+
+    if (!historyPassword) {
+      setEncryptStatusMsg("Pro uložení s šifrováním musíte zadat heslo do zámku v levém panelu.");
+      return;
+    }
+
+    try {
+      const encrypted = await encryptText(textToSave, historyPassword);
+
+      const newEntry: EncryptedHistoryEntry = {
+        id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(),
+        timestamp: new Date().toLocaleString(),
+        title: `${title} - ${new Date().toLocaleTimeString()}`,
+        ciphertext: encrypted.ciphertext,
+        salt: encrypted.salt,
+        iv: encrypted.iv
+      };
+
+      const updatedHistory = [newEntry, ...encryptedHistory];
+      saveEncryptedToLocalStorage(updatedHistory);
+
+      if (!isHistoryLocked) {
+        setDecryptedHistory([
+          {
+            id: newEntry.id,
+            timestamp: newEntry.timestamp,
+            title: newEntry.title,
+            text: textToSave
+          },
+          ...decryptedHistory
+        ]);
+      }
+
+      setEncryptStatusMsg("Položka byla bezpečně zašifrována pomocí AES-GCM a uložena.");
+    } catch (e) {
+      setEncryptStatusMsg("Nepodařilo se zašifrovat data.");
+    }
+  };
+
   const handleDeleteHistoryItem = (id: string) => {
     const updated = encryptedHistory.filter(item => item.id !== id);
     saveEncryptedToLocalStorage(updated);
@@ -1080,6 +1476,28 @@ export default function App() {
             </button>
           </div>
 
+          {/* AI SEBEUČENÍ SETTING */}
+          <div className="p-3 bg-white dark:bg-workspace-panel border border-slate-200 dark:border-white/10 rounded-lg shadow-xs space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest flex items-center gap-1 font-mono">
+                <Brain className="w-3 h-3 text-purple-500 dark:text-purple-400" /> AI Sebeučení
+              </span>
+              <button 
+                onClick={() => setIsLearningEnabled(!isLearningEnabled)}
+                className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-bold uppercase cursor-pointer border transition-all ${
+                  isLearningEnabled 
+                    ? "bg-purple-50 dark:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800/40" 
+                    : "bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 border-slate-200 dark:border-zinc-700"
+                }`}
+              >
+                {isLearningEnabled ? "Aktivní" : "Vypnuto"}
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-500 dark:text-zinc-400 leading-normal">
+              Automaticky detekuje a extrahuje sofistikované výrazy z konverzací a ukládá je do slovníku.
+            </p>
+          </div>
+
           {/* SECURE AES-GCM LOCAL STORAGE DRAWER */}
           <div className="mt-auto p-4 bg-white dark:bg-workspace-panel border border-slate-200 dark:border-white/10 rounded-lg shadow-xs space-y-3">
             <div className="flex items-center justify-between">
@@ -1233,7 +1651,7 @@ export default function App() {
                   </div>
 
                   {/* Textarea Wrapper for Custom Ghost Autocomplete Suggestion overlay */}
-                  <div className="flex-1 bg-white border border-slate-300 rounded-xl p-4 shadow-sm relative focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100 transition-all flex flex-col min-h-0">
+                  <div className="flex-1 bg-white dark:bg-workspace-panel border border-slate-300 dark:border-white/10 rounded-xl p-4 shadow-sm relative focus-within:border-blue-500 dark:focus-within:border-purple-500 focus-within:ring-2 focus-within:ring-blue-100 dark:focus-within:ring-purple-950/20 transition-all flex flex-col min-h-0">
                     <div className="relative flex-1 overflow-auto">
                       {/* Textarea overlay */}
                       <textarea
@@ -1242,14 +1660,14 @@ export default function App() {
                         onChange={handleTextareaChange}
                         onKeyDown={handleKeyDown}
                         placeholder="Napište nebo vložte text... Např. 'Umělá neuronová síť je klíčem k pokroku.' a stiskněte klávesu Tab pro dokončení výrazů."
-                        className="w-full h-full min-h-[160px] resize-none border-0 p-0 focus:ring-0 focus:outline-none text-slate-800 leading-relaxed text-sm bg-transparent relative z-10"
+                        className="w-full h-full min-h-[160px] resize-none border-0 p-0 focus:ring-0 focus:outline-none text-slate-800 dark:text-zinc-100 leading-relaxed text-sm bg-transparent relative z-10"
                       />
                       
                       {/* Ghost Autocomplete Overlay */}
                       {prediction && (
-                        <div className="absolute pointer-events-none text-sm leading-relaxed text-slate-300 top-0 left-0 z-0 pl-0 select-none">
+                        <div className="absolute pointer-events-none text-sm leading-relaxed text-slate-300 dark:text-zinc-600 top-0 left-0 z-0 pl-0 select-none">
                           <span className="opacity-0">{inputText}</span>
-                          <span className="bg-blue-50 text-blue-500 border border-blue-200 px-1 py-0.5 rounded text-xs ml-1 animate-pulse select-none">
+                          <span className="bg-blue-50 dark:bg-purple-950/30 text-blue-500 dark:text-purple-400 border border-blue-200 dark:border-purple-850 px-1 py-0.5 rounded text-xs ml-1 animate-pulse select-none">
                             Stiskněte Tab pro: &quot;{prediction}&quot;
                           </span>
                         </div>
@@ -1258,13 +1676,13 @@ export default function App() {
 
                     {/* Live Autocomplete / Prediction Helper (Aktivní a plně funkční pomocník) */}
                     {prediction && (
-                      <div className="mt-2.5 p-2 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between animate-fade-in shrink-0">
-                        <span className="text-xs text-blue-800 font-medium flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                      <div className="mt-2.5 p-2 bg-blue-50 dark:bg-purple-950/10 border border-blue-200 dark:border-purple-900/30 rounded-lg flex items-center justify-between animate-fade-in shrink-0">
+                        <span className="text-xs text-blue-800 dark:text-purple-300 font-medium flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500 dark:bg-purple-400 animate-pulse"></span>
                           Našeptávač: doplnit <strong className="font-bold underline">{prediction}</strong>
                         </span>
                         <div className="flex items-center gap-1.5">
-                          <kbd className="px-1 py-0.5 bg-white border border-slate-300 rounded shadow-xs text-[9px] text-slate-500 font-mono">Tab ⇥</kbd>
+                          <kbd className="px-1 py-0.5 bg-white dark:bg-zinc-800 border border-slate-300 dark:border-white/10 rounded shadow-xs text-[9px] text-slate-500 dark:text-zinc-400 font-mono">Tab ⇥</kbd>
                           <button 
                             type="button"
                             onClick={() => {
@@ -1272,7 +1690,7 @@ export default function App() {
                               setPrediction("");
                               textareaRef.current?.focus();
                             }}
-                            className="text-[10px] bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded font-bold shadow-xs transition-colors cursor-pointer"
+                            className="text-[10px] bg-blue-600 dark:bg-purple-600 hover:bg-blue-700 dark:hover:bg-purple-700 text-white px-2 py-1 rounded font-bold shadow-xs transition-colors cursor-pointer"
                           >
                             Doplnit
                           </button>
@@ -1281,21 +1699,56 @@ export default function App() {
                     )}
 
                     {/* Integrated Quick-Word triggers for autocomplete training */}
-                    <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-1.5 items-center shrink-0">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">Rychlá offline klíčová slova:</span>
-                      {OFFLINE_DICTIONARY.slice(0, 5).map((entry) => (
-                        <button
-                          key={entry.id}
-                          onClick={() => {
-                            const separator = inputText.length > 0 && !inputText.endsWith(" ") ? " " : "";
-                            setInputText(prev => prev + separator + entry.term);
-                            textareaRef.current?.focus();
-                          }}
-                          className="px-2 py-1 bg-slate-100 text-slate-700 hover:bg-blue-50 hover:text-blue-700 rounded-md text-xs font-medium border border-slate-200 transition-colors"
-                        >
-                          +{entry.term}
-                        </button>
-                      ))}
+                    <div className="mt-3 pt-3 border-t border-slate-100 dark:border-white/5 flex flex-wrap gap-1.5 items-center justify-between shrink-0">
+                      <div className="flex flex-wrap gap-1.5 items-center">
+                        <span className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider mr-1">Rychlá offline klíčová slova:</span>
+                        {OFFLINE_DICTIONARY.slice(0, 5).map((entry) => (
+                          <button
+                            key={entry.id}
+                            type="button"
+                            onClick={() => {
+                              const separator = inputText.length > 0 && !inputText.endsWith(" ") ? " " : "";
+                              setInputText(prev => prev + separator + entry.term);
+                              textareaRef.current?.focus();
+                            }}
+                            className="px-2 py-1 bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-purple-950/30 dark:hover:text-purple-400 rounded-md text-xs font-medium border border-slate-200 dark:border-white/5 transition-colors"
+                          >
+                            +{entry.term}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Web Speech API Microphone Toggle */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isListeningRephrase) {
+                            setIsListeningRephrase(false);
+                          } else {
+                            startVoiceToText("cs-CZ", (text) => {
+                              setInputText(prev => prev + (prev ? " " : "") + text);
+                            }, setIsListeningRephrase);
+                          }
+                        }}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                          isListeningRephrase 
+                            ? "bg-rose-500 hover:bg-rose-600 text-white animate-pulse" 
+                            : "bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300"
+                        }`}
+                        title="Diktovat text hlasem (Web Speech API)"
+                      >
+                        {isListeningRephrase ? (
+                          <>
+                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span>
+                            <span>Naslouchám...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Mic className="w-3.5 h-3.5" />
+                            <span>Diktovat hlasem</span>
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1466,9 +1919,33 @@ export default function App() {
                       />
                       
                       <div className="p-3 bg-slate-50 dark:bg-black/20 border-t border-slate-100 dark:border-white/10 flex items-center justify-between shrink-0 rounded-b-xl">
-                        <span className="text-[9px] font-mono uppercase tracking-wider text-slate-400 dark:text-zinc-500">
-                          Automated agent logic enabled // [Offline-Ready]
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] font-mono uppercase tracking-wider text-slate-400 dark:text-zinc-500 mr-2">
+                            Automated agent logic enabled // [Offline-Ready]
+                          </span>
+                          
+                          {/* Microphone Button */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isListeningPrompt) {
+                                setIsListeningPrompt(false);
+                              } else {
+                                startVoiceToText("cs-CZ", (text) => {
+                                  setInputPrompt(prev => prev + (prev ? " " : "") + text);
+                                }, setIsListeningPrompt);
+                              }
+                            }}
+                            className={`px-2.5 py-1 rounded text-[10px] font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer border border-slate-200 dark:border-white/5 ${
+                              isListeningPrompt 
+                                ? "bg-rose-500 hover:bg-rose-600 text-white animate-pulse" 
+                                : "bg-slate-200 dark:bg-zinc-800 hover:bg-slate-300 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300"
+                            }`}
+                          >
+                            <Mic className="w-3 h-3" />
+                            <span>{isListeningPrompt ? "LISTENING..." : "DICTATE_CS"}</span>
+                          </button>
+                        </div>
                         <button
                           onClick={handleOptimizePrompt}
                           disabled={!inputPrompt.trim() || isOptimizing}
@@ -2104,39 +2581,94 @@ export default function App() {
           {/* TAB 5: ASSERTIVE REPLY GENERATOR (Odpovědi na zprávy s pozitivním dopadem) */}
           {activeTab === "reply" && (
             <div className="flex-1 flex flex-col gap-6 overflow-y-auto pr-2">
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight text-slate-900 font-display flex items-center gap-2">
-                  <Shield className="w-6 h-6 text-blue-600" />
-                  Odpovědi na zprávy: Ochrana Hranic
-                </h1>
-                <p className="text-sm text-slate-600">
-                  Zadejte manipulativní, pasivně-agresivní nebo nátlakovou zprávu. Asistent zanalyzuje skryté záměry pro posílení vašeho sebevědomí (pozitivní dopad) a vygeneruje nekompromisní asertivní odpověď.
-                </p>
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-display flex items-center gap-2">
+                    <Shield className="w-6 h-6 text-blue-600 dark:text-purple-400" />
+                    Odpovědi na zprávy: Ochrana Hranic
+                  </h1>
+                  <p className="text-sm text-slate-600 dark:text-zinc-400">
+                    Zpracujte manipulativní, pasivně-agresivní nebo nátlakové zprávy s neprůstřelným asertivním štítem.
+                  </p>
+                </div>
+
+                {/* VERSION SWITCHER */}
+                <div className="flex bg-slate-100 dark:bg-zinc-800 p-1 rounded-xl border border-slate-200 dark:border-white/10 shrink-0 self-start sm:self-center">
+                  <button 
+                    type="button"
+                    onClick={() => setIsIPhoneMode(false)}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                      !isIPhoneMode 
+                        ? "bg-white dark:bg-zinc-900 shadow-sm text-blue-600 dark:text-purple-400 border border-slate-200 dark:border-white/5" 
+                        : "text-slate-600 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-200"
+                    }`}
+                  >
+                    Standardní verze
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setIsIPhoneMode(true)}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                      isIPhoneMode 
+                        ? "bg-white dark:bg-zinc-900 shadow-sm text-blue-600 dark:text-purple-400 border border-slate-200 dark:border-white/5" 
+                        : "text-slate-600 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-200"
+                    }`}
+                  >
+                    <Smartphone className="w-3.5 h-3.5" />
+                    iPhone Hlasový Asistent
+                  </button>
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                {/* INPUT CONTROL PANEL */}
-                <div className="lg:col-span-5 space-y-5">
-                  <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                        Příchozí manipulativní zpráva:
-                      </label>
-                      <textarea
-                        value={receivedMessage}
-                        onChange={(e) => setReceivedMessage(e.target.value)}
-                        placeholder="Sem vložte text zprávy (např.: 'Okamžitě to předělej, vůbec nechápu co ti trvá, hrozně jsi mě zklamal...')"
-                        className="w-full h-44 p-3 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 focus:bg-white transition-all resize-none leading-relaxed"
-                      />
-                      <div className="flex justify-between items-center text-[10px] text-slate-400">
-                        <span>Znaky: {receivedMessage.length}</span>
-                        <span>Funguje 100% Offline i Online</span>
+              {!isIPhoneMode ? (
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  {/* INPUT CONTROL PANEL */}
+                  <div className="lg:col-span-5 space-y-5">
+                    <div className="bg-white dark:bg-workspace-panel border border-slate-200 dark:border-white/10 rounded-xl p-5 shadow-xs space-y-4">
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-700 dark:text-zinc-400 uppercase tracking-wider block">
+                          Příchozí manipulativní zpráva:
+                        </label>
+                        <textarea
+                          value={receivedMessage}
+                          onChange={(e) => setReceivedMessage(e.target.value)}
+                          placeholder="Sem vložte text zprávy (např.: 'Okamžitě to předělej, vůbec nechápu co ti trvá, hrozně jsi mě zklamal...')"
+                          className="w-full h-44 p-3 text-sm bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:border-blue-500 dark:focus:border-purple-500 focus:bg-white dark:focus:bg-zinc-900 text-slate-900 dark:text-white focus:text-slate-900 dark:focus:text-white placeholder-slate-400 dark:placeholder-zinc-500 transition-all resize-none leading-relaxed shadow-inner"
+                        />
+                        <div className="flex justify-between items-center text-[10px] text-slate-400 dark:text-zinc-500 pt-1">
+                          <div className="flex items-center gap-1.5">
+                            <span>Znaky: {receivedMessage.length}</span>
+                            <span className="w-1 h-1 rounded-full bg-green-500"></span>
+                            <span>Aktivní [Offline-Local]</span>
+                          </div>
+                          
+                          {/* Microphone Voice dictation */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isListeningReply) {
+                                setIsListeningReply(false);
+                              } else {
+                                startVoiceToText("cs-CZ", (text) => {
+                                  setReceivedMessage(prev => prev + (prev ? " " : "") + text);
+                                }, setIsListeningReply);
+                              }
+                            }}
+                            className={`px-2.5 py-1 rounded-md text-[10px] font-bold flex items-center gap-1.5 transition-all cursor-pointer border border-slate-200 dark:border-white/5 ${
+                              isListeningReply 
+                                ? "bg-rose-500 hover:bg-rose-600 text-white animate-pulse" 
+                                : "bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300"
+                            }`}
+                          >
+                            <Mic className="w-3 h-3" />
+                            <span>{isListeningReply ? "Naslouchám..." : "Diktovat zprávu"}</span>
+                          </button>
+                        </div>
                       </div>
-                    </div>
 
                     {/* TONE SELECTION */}
                     <div className="space-y-2">
-                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                      <label className="text-xs font-bold text-slate-700 dark:text-zinc-400 uppercase tracking-wider block">
                         Zvolit komunikační styl:
                       </label>
                       <div className="grid grid-cols-1 gap-2">
@@ -2145,15 +2677,15 @@ export default function App() {
                           onClick={() => setToneStyle("uncompromising")}
                           className={`w-full text-left p-3 rounded-lg border text-xs transition-all flex flex-col gap-1 ${
                             toneStyle === "uncompromising"
-                              ? "bg-blue-50/50 border-blue-500 text-blue-900 ring-1 ring-blue-500"
-                              : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                              ? "bg-blue-50/50 dark:bg-purple-950/20 border-blue-500 dark:border-purple-500 text-blue-900 dark:text-purple-300 ring-1 ring-blue-500 dark:ring-purple-500"
+                              : "border-slate-200 dark:border-white/10 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-white/5"
                           }`}
                         >
-                          <span className="font-bold flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
+                          <span className="font-bold flex items-center gap-1.5 text-slate-800 dark:text-zinc-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-600 dark:bg-purple-500"></span>
                             Ledově klidný a nekompromisní
                           </span>
-                          <span className="text-[10px] text-slate-500 leading-normal pl-3">
+                          <span className="text-[10px] text-slate-500 dark:text-zinc-400 leading-normal pl-3">
                             Věcný, chladný tón, který dává najevo, že s vámi nelze manipulovat.
                           </span>
                         </button>
@@ -2163,15 +2695,15 @@ export default function App() {
                           onClick={() => setToneStyle("confident")}
                           className={`w-full text-left p-3 rounded-lg border text-xs transition-all flex flex-col gap-1 ${
                             toneStyle === "confident"
-                              ? "bg-blue-50/50 border-blue-500 text-blue-900 ring-1 ring-blue-500"
-                              : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                              ? "bg-blue-50/50 dark:bg-purple-950/20 border-blue-500 dark:border-purple-500 text-blue-900 dark:text-purple-300 ring-1 ring-blue-500 dark:ring-purple-500"
+                              : "border-slate-200 dark:border-white/10 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-white/5"
                           }`}
                         >
-                          <span className="font-bold flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+                          <span className="font-bold flex items-center gap-1.5 text-slate-800 dark:text-zinc-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 dark:bg-emerald-500"></span>
                             Sebevědomý a diplomatický
                           </span>
-                          <span className="text-[10px] text-slate-500 leading-normal pl-3">
+                          <span className="text-[10px] text-slate-500 dark:text-zinc-400 leading-normal pl-3">
                             Vysoký status s nadhledem, zdvořilý ale s neprůstřelnými hranicemi.
                           </span>
                         </button>
@@ -2181,15 +2713,15 @@ export default function App() {
                           onClick={() => setToneStyle("direct")}
                           className={`w-full text-left p-3 rounded-lg border text-xs transition-all flex flex-col gap-1 ${
                             toneStyle === "direct"
-                              ? "bg-blue-50/50 border-blue-500 text-blue-900 ring-1 ring-blue-500"
-                              : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                              ? "bg-blue-50/50 dark:bg-purple-950/20 border-blue-500 dark:border-purple-500 text-blue-900 dark:text-purple-300 ring-1 ring-blue-500 dark:ring-purple-500"
+                              : "border-slate-200 dark:border-white/10 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-white/5"
                           }`}
                         >
-                          <span className="font-bold flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
+                          <span className="font-bold flex items-center gap-1.5 text-slate-800 dark:text-zinc-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-500"></span>
                             Úderný a stručný
                           </span>
-                          <span className="text-[10px] text-slate-500 leading-normal pl-3">
+                          <span className="text-[10px] text-slate-500 dark:text-zinc-400 leading-normal pl-3">
                             Maximálně zkrácený, žádné vysvětlování ani omluvy. Pouze fakta.
                           </span>
                         </button>
@@ -2200,7 +2732,7 @@ export default function App() {
                       type="button"
                       disabled={isGeneratingReply || !receivedMessage.trim()}
                       onClick={handleGenerateReply}
-                      className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg shadow-sm hover:shadow-md flex items-center justify-center gap-2 transition-all shrink-0"
+                      className="w-full py-3 bg-blue-600 hover:bg-blue-700 dark:bg-purple-600 dark:hover:bg-purple-700 disabled:bg-slate-200 dark:disabled:bg-zinc-800 disabled:text-slate-400 dark:disabled:text-zinc-500 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg shadow-sm hover:shadow-md flex items-center justify-center gap-2 transition-all shrink-0"
                     >
                       {isGeneratingReply ? (
                         <>
@@ -2227,31 +2759,31 @@ export default function App() {
                   )}
 
                   {!replyOutput && !isGeneratingReply ? (
-                    <div className="bg-slate-50 border border-slate-200 border-dashed rounded-xl p-12 text-center text-slate-400 space-y-3">
-                      <MessageSquare className="w-10 h-10 text-slate-300 mx-auto" />
+                    <div className="bg-slate-50 dark:bg-workspace-panel/40 border border-slate-200 dark:border-white/5 border-dashed rounded-xl p-12 text-center text-slate-400 dark:text-zinc-500 space-y-3">
+                      <MessageSquare className="w-10 h-10 text-slate-300 dark:text-zinc-600 mx-auto" />
                       <div>
-                        <p className="text-sm font-semibold text-slate-700">Čekám na zadání zprávy</p>
-                        <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1 leading-normal">
+                        <p className="text-sm font-semibold text-slate-700 dark:text-zinc-300">Čekám na zadání zprávy</p>
+                        <p className="text-xs text-slate-500 dark:text-zinc-400 max-w-sm mx-auto mt-1 leading-normal">
                           Vložte manipulativní text vlevo a klikněte na tlačítko. V reálném čase odhalíme toxické vzorce a navrhneme odpověď s vysokým statusem.
                         </p>
                       </div>
                     </div>
                   ) : isGeneratingReply ? (
-                    <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-6">
+                    <div className="bg-white dark:bg-workspace-panel border border-slate-200 dark:border-white/10 rounded-xl p-6 shadow-xs space-y-6">
                       <div className="space-y-3">
-                        <div className="h-4 bg-slate-100 rounded-md w-1/3 animate-pulse"></div>
+                        <div className="h-4 bg-slate-100 dark:bg-zinc-800 rounded-md w-1/3 animate-pulse"></div>
                         <div className="space-y-2">
-                          <div className="h-3 bg-slate-100 rounded-md w-full animate-pulse"></div>
-                          <div className="h-3 bg-slate-100 rounded-md w-5/6 animate-pulse"></div>
+                          <div className="h-3 bg-slate-100 dark:bg-zinc-800 rounded-md w-full animate-pulse"></div>
+                          <div className="h-3 bg-slate-100 dark:bg-zinc-800 rounded-md w-5/6 animate-pulse"></div>
                         </div>
                       </div>
-                      <div className="space-y-3 pt-4 border-t border-slate-100">
-                        <div className="h-4 bg-slate-100 rounded-md w-1/4 animate-pulse"></div>
-                        <div className="h-3 bg-slate-100 rounded-md w-3/4 animate-pulse"></div>
+                      <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-white/5">
+                        <div className="h-4 bg-slate-100 dark:bg-zinc-800 rounded-md w-1/4 animate-pulse"></div>
+                        <div className="h-3 bg-slate-100 dark:bg-zinc-800 rounded-md w-3/4 animate-pulse"></div>
                       </div>
-                      <div className="space-y-3 pt-4 border-t border-slate-100">
-                        <div className="h-4 bg-slate-100 rounded-md w-1/2 animate-pulse"></div>
-                        <div className="h-16 bg-slate-100 rounded-md w-full animate-pulse"></div>
+                      <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-white/5">
+                        <div className="h-4 bg-slate-100 dark:bg-zinc-800 rounded-md w-1/2 animate-pulse"></div>
+                        <div className="h-16 bg-slate-100 dark:bg-zinc-800 rounded-md w-full animate-pulse"></div>
                       </div>
                     </div>
                   ) : (
@@ -2297,37 +2829,37 @@ export default function App() {
                         return (
                           <>
                             {parsed.analysis && (
-                              <div className="bg-blue-50/50 border border-blue-200/60 rounded-xl p-5 space-y-2.5">
-                                <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider flex items-center gap-2">
-                                  <span className="p-1 bg-blue-100 text-blue-700 rounded-md">🧠</span>
+                              <div className="bg-blue-50/50 dark:bg-purple-950/10 border border-blue-200/60 dark:border-purple-800/20 rounded-xl p-5 space-y-2.5">
+                                <h3 className="text-xs font-bold text-blue-900 dark:text-purple-300 uppercase tracking-wider flex items-center gap-2">
+                                  <span className="p-1 bg-blue-100 dark:bg-purple-950/40 text-blue-700 dark:text-purple-400 rounded-md">🧠</span>
                                   Psychologický rozbor (Pro Vaše sebevědomí)
                                 </h3>
-                                <p className="text-sm text-slate-700 leading-relaxed font-sans">
+                                <p className="text-sm text-slate-700 dark:text-zinc-300 leading-relaxed font-sans">
                                   {parsed.analysis}
                                 </p>
                               </div>
                             )}
 
                             {parsed.strategy && (
-                              <div className="bg-emerald-50/30 border border-emerald-200/50 rounded-xl p-5 space-y-2">
-                                <h3 className="text-xs font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-2">
-                                  <span className="p-1 bg-emerald-100/80 text-emerald-700 rounded-md">🛡️</span>
+                              <div className="bg-emerald-50/30 dark:bg-emerald-950/10 border border-emerald-200/50 dark:border-emerald-900/20 rounded-xl p-5 space-y-2">
+                                <h3 className="text-xs font-bold text-emerald-900 dark:text-emerald-300 uppercase tracking-wider flex items-center gap-2">
+                                  <span className="p-1 bg-emerald-100/80 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 rounded-md">🛡️</span>
                                   Doporučená komunikační strategie
                                 </h3>
-                                <p className="text-sm text-slate-700 leading-relaxed font-sans">
+                                <p className="text-sm text-slate-700 dark:text-zinc-300 leading-relaxed font-sans">
                                   {parsed.strategy}
                                 </p>
                               </div>
                             )}
 
                             {parsed.reply && (
-                              <div className="bg-white border-2 border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-                                <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-                                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                                    <span className="p-1 bg-slate-100 text-slate-700 rounded-md">💬</span>
+                              <div className="bg-white dark:bg-workspace-panel border-2 border-slate-200 dark:border-white/10 rounded-xl p-5 shadow-sm space-y-4">
+                                <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/5 pb-2.5">
+                                  <h3 className="text-xs font-bold text-slate-800 dark:text-zinc-200 uppercase tracking-wider flex items-center gap-2">
+                                    <span className="p-1 bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 rounded-md">💬</span>
                                     Navržená asertivní odpověď k odeslání
                                   </h3>
-                                  <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono font-medium">
+                                  <span className="text-[10px] bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 px-2 py-0.5 rounded font-mono font-medium">
                                     Status: Vysoký status
                                   </span>
                                 </div>
@@ -2344,11 +2876,11 @@ export default function App() {
                                       setIsCopied(true);
                                       setTimeout(() => setIsCopied(false), 2000);
                                     }}
-                                    className="px-4 py-2 text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 active:scale-98 rounded-lg flex items-center gap-2 transition-all cursor-pointer"
+                                    className="px-4 py-2 text-xs font-bold bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 active:scale-98 rounded-lg flex items-center gap-2 transition-all cursor-pointer"
                                   >
                                     {isCopied ? (
                                       <>
-                                        <Check className="w-4 h-4 text-green-600" />
+                                        <Check className="w-4 h-4 text-green-600 dark:text-green-400" />
                                         <span>Zkopírováno!</span>
                                       </>
                                     ) : (
@@ -2362,7 +2894,7 @@ export default function App() {
                                   <button
                                     type="button"
                                     onClick={handleSaveToHistory}
-                                    className="px-4 py-2 text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 active:scale-98 rounded-lg flex items-center gap-2 transition-all cursor-pointer shadow-xs"
+                                    className="px-4 py-2 text-xs font-bold bg-blue-600 dark:bg-purple-600 text-white hover:bg-blue-700 dark:hover:bg-purple-700 active:scale-98 rounded-lg flex items-center gap-2 transition-all cursor-pointer shadow-xs"
                                   >
                                     <Lock className="w-4 h-4 text-white/90" />
                                     <span>Uložit šifrovaně do paměti</span>
@@ -2377,6 +2909,446 @@ export default function App() {
                   )}
                 </div>
               </div>
+            ) : (
+              <div className="max-w-3xl mx-auto w-full space-y-6 animate-fade-in">
+                  {/* IPHONE CONTROL CARD */}
+                  <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl p-6 shadow-md space-y-6">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-100 dark:border-zinc-800 pb-4">
+                      <div>
+                        <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2 font-display">
+                          <Smartphone className="w-5 h-5 text-blue-600 dark:text-purple-400" />
+                          iPhone Companion & Hlasový Asistent
+                        </h2>
+                        <p className="text-xs text-slate-500 dark:text-zinc-400">
+                          Hlasové ovládání a okamžitý poslech 3 asertivních štítů na jedno kliknutí.
+                        </p>
+                      </div>
+                      
+                      {/* Offline Mode Toggle for iPhone */}
+                      <div className="flex items-center gap-2.5 bg-slate-50 dark:bg-zinc-950 p-2 rounded-xl border border-slate-200/60 dark:border-zinc-800/50">
+                        <span className="text-[11px] font-semibold text-slate-700 dark:text-zinc-300">Vždy offline (SLM):</span>
+                        <button
+                          type="button"
+                          onClick={() => setUseOfflineSLM(!useOfflineSLM)}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            useOfflineSLM ? "bg-green-500" : "bg-slate-300 dark:bg-zinc-700"
+                          }`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                              useOfflineSLM ? "translate-x-5" : "translate-x-0"
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* INPUT FOR IPHONE */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-slate-700 dark:text-zinc-400 uppercase tracking-wider block">
+                        Příchozí manipulativní zpráva k analýze:
+                      </label>
+                      <div className="relative">
+                        <textarea
+                          value={receivedMessage}
+                          onChange={(e) => setReceivedMessage(e.target.value)}
+                          placeholder="Zadejte nebo nadiktujte zprávu... (např. 'Proč ti to trvá? Ostatní už to mají dávno hotové!')"
+                          className="w-full h-32 p-4 text-sm bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:border-blue-500 dark:focus:border-purple-500 focus:bg-white dark:focus:bg-zinc-900 text-slate-900 dark:text-white transition-all resize-none shadow-inner leading-relaxed pr-12"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isListeningReply) {
+                              setIsListeningReply(false);
+                            } else {
+                              startVoiceToText("cs-CZ", (text) => {
+                                setReceivedMessage(prev => prev + (prev ? " " : "") + text);
+                              }, setIsListeningReply);
+                            }
+                          }}
+                          className={`absolute right-3 bottom-3 p-2.5 rounded-full shadow-sm transition-all cursor-pointer ${
+                            isListeningReply
+                              ? "bg-rose-500 hover:bg-rose-600 text-white animate-pulse"
+                              : "bg-slate-200 dark:bg-zinc-800 hover:bg-slate-350 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300"
+                          }`}
+                          title="Diktovat hlasem"
+                        >
+                          <Mic className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* VOICE PRESET AND SYNTHESIS SETTINGS */}
+                    <div className="bg-slate-50 dark:bg-zinc-950 rounded-xl p-4 border border-slate-200/50 dark:border-zinc-800/40 grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* VOICE TONE STYLE */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-slate-700 dark:text-zinc-400 uppercase tracking-wider block">
+                          Styl hlasové syntézy:
+                        </label>
+                        <select
+                          value={voiceTonePreset}
+                          onChange={(e) => setVoiceTonePreset(e.target.value as any)}
+                          className="w-full p-2.5 text-xs bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                        >
+                          <option value="uncompromising">Ledově nekompromisní (Hluboký, pomalý)</option>
+                          <option value="factual">Věcný a faktický (Rychlejší, neutrální)</option>
+                          <option value="kind">Laskavý a vřelý (Vyšší tón, klidný)</option>
+                          <option value="clone">Vlastní hlasový klon (Ruční nastavení)</option>
+                        </select>
+                      </div>
+
+                      {/* VOICE CLONING PARAMETERS */}
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <label className="text-xs font-bold text-slate-700 dark:text-zinc-400 uppercase tracking-wider block">
+                            Ladění hlasu {voiceTonePreset === "clone" ? "(Vlastní klon)" : "(Pouze pro čtení)"}:
+                          </label>
+                          {voiceTonePreset !== "clone" && (
+                            <span className="text-[10px] text-slate-400">Automaticky řízeno stylem</span>
+                          )}
+                        </div>
+                        <div className="space-y-3 pt-1">
+                          {/* Pitch */}
+                          <div className="flex items-center gap-3">
+                            <span className="text-[10px] text-slate-500 w-12 shrink-0">Výška ({userPitch.toFixed(2)}):</span>
+                            <input
+                              type="range"
+                              min="0.5"
+                              max="1.5"
+                              step="0.05"
+                              value={userPitch}
+                              disabled={voiceTonePreset !== "clone"}
+                              onChange={(e) => setUserPitch(parseFloat(e.target.value))}
+                              className="flex-1 accent-blue-600 dark:accent-purple-500 disabled:opacity-40"
+                            />
+                          </div>
+                          {/* Rate */}
+                          <div className="flex items-center gap-3">
+                            <span className="text-[10px] text-slate-500 w-12 shrink-0">Rychl. ({userRate.toFixed(2)}):</span>
+                            <input
+                              type="range"
+                              min="0.5"
+                              max="1.5"
+                              step="0.05"
+                              value={userRate}
+                              disabled={voiceTonePreset !== "clone"}
+                              onChange={(e) => setUserRate(parseFloat(e.target.value))}
+                              className="flex-1 accent-blue-600 dark:accent-purple-500 disabled:opacity-40"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* GENERATE ACTION BUTTON */}
+                    <button
+                      type="button"
+                      disabled={isGeneratingTriple || !receivedMessage.trim()}
+                      onClick={() => handleGenerateTripleReplies(receivedMessage)}
+                      className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-purple-600 dark:to-indigo-600 disabled:from-slate-200 disabled:to-slate-200 dark:disabled:from-zinc-800 dark:disabled:to-zinc-800 disabled:text-slate-400 dark:disabled:text-zinc-500 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl shadow-md hover:shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      {isGeneratingTriple ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <span>Generuji 3 asertivní štíty současně...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4" />
+                          <span>Vygenerovat 3 obranné štíty & Spustit asistenta</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* VOICE / SIRI DIALOGSTATUS BAR */}
+                  {(isListeningForVoiceChoice || voiceChoiceStatus || isGeneratingTriple) && (
+                    <div className="bg-slate-950 text-slate-100 border border-slate-800 rounded-xl p-4 flex items-center justify-between shadow-lg">
+                      <div className="flex items-center gap-3">
+                        {/* Pulse effect */}
+                        <div className="relative flex h-3 w-3 shrink-0">
+                          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                            isGeneratingTriple ? "bg-blue-400" : isListeningForVoiceChoice ? "bg-rose-400" : "bg-emerald-400"
+                          }`}></span>
+                          <span className={`relative inline-flex rounded-full h-3 w-3 ${
+                            isGeneratingTriple ? "bg-blue-500" : isListeningForVoiceChoice ? "bg-rose-500" : "bg-emerald-500"
+                          }`}></span>
+                        </div>
+                        <div className="space-y-0.5">
+                          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Hlasový Asistent</p>
+                          <p className="text-xs text-slate-200 font-medium">
+                            {isGeneratingTriple 
+                              ? "Pracuji na rozboru zprávy ze 3 různých úhlů..." 
+                              : voiceChoiceStatus || "Připraven k naslouchání..."}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Microphone switch to repeat listening */}
+                      {!isGeneratingTriple && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isListeningForVoiceChoice) {
+                              setIsListeningForVoiceChoice(false);
+                            } else {
+                              startListeningForVoiceSelection();
+                            }
+                          }}
+                          className={`px-3 py-1.5 text-[10px] font-bold rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+                            isListeningForVoiceChoice
+                              ? "bg-rose-600 hover:bg-rose-700 text-white animate-pulse"
+                              : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700"
+                          }`}
+                        >
+                          <Mic className="w-3.5 h-3.5" />
+                          <span>{isListeningForVoiceChoice ? "Zastavit" : "Aktivovat mikrofon"}</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* TRIPLE SHIELD RESULTS */}
+                  {tripleReplies && (
+                    <div className="space-y-4">
+                      {/* Keyboard shortcuts banner */}
+                      <div className="bg-blue-50/50 dark:bg-purple-950/10 border border-blue-200/50 dark:border-purple-900/30 rounded-xl p-3 text-center text-[11px] text-slate-600 dark:text-zinc-400 flex items-center justify-center gap-2">
+                        <Keyboard className="w-4 h-4 text-blue-600 dark:text-purple-400" />
+                        <span>
+                          <strong>Zkratka:</strong> Stiskněte klávesu <strong>1</strong> (Laskavá), <strong>2</strong> (Faktická), nebo <strong>3</strong> (Nekompromisní) pro přímé čtení a výběr!
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                        {/* CARD 1: LASKAVÝ */}
+                        <div 
+                          onClick={() => handleSelectTripleVoiceIndex(1)}
+                          className={`bg-white dark:bg-zinc-900 rounded-2xl p-5 border-2 transition-all cursor-pointer flex flex-col justify-between gap-4 ${
+                            selectedTripleVoiceIndex === 1
+                              ? "border-emerald-500 shadow-md ring-1 ring-emerald-500 bg-emerald-50/5 dark:bg-emerald-950/5"
+                              : "border-slate-200 dark:border-zinc-800 hover:border-slate-350 dark:hover:border-zinc-700 shadow-xs"
+                          }`}
+                        >
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-extrabold uppercase bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 rounded">
+                                1. Laskavý
+                              </span>
+                              <div className="p-1 text-emerald-600 dark:text-emerald-400">
+                                <Volume2 className="w-4 h-4" />
+                              </div>
+                            </div>
+                            
+                            <div className="space-y-1">
+                              <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wide">Pochopení:</p>
+                              <p className="text-xs text-slate-600 dark:text-zinc-300 leading-relaxed line-clamp-4">
+                                {tripleReplies.kind.analysis}
+                              </p>
+                            </div>
+
+                            <div className="space-y-1">
+                              <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wide">Štít k odeslání:</p>
+                              <div className="p-2.5 bg-slate-50 dark:bg-zinc-950 rounded-lg text-xs font-medium text-slate-800 dark:text-zinc-250 leading-relaxed border border-slate-100 dark:border-zinc-850/50 line-clamp-5">
+                                {tripleReplies.kind.reply}
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectTripleVoiceIndex(1);
+                            }}
+                            className={`w-full py-1.5 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all ${
+                              selectedTripleVoiceIndex === 1
+                                ? "bg-emerald-600 text-white"
+                                : "bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-200"
+                            }`}
+                          >
+                            <Play className="w-3 h-3" />
+                            <span>Přehrát</span>
+                          </button>
+                        </div>
+
+                        {/* CARD 2: FACTUAL */}
+                        <div 
+                          onClick={() => handleSelectTripleVoiceIndex(2)}
+                          className={`bg-white dark:bg-zinc-900 rounded-2xl p-5 border-2 transition-all cursor-pointer flex flex-col justify-between gap-4 ${
+                            selectedTripleVoiceIndex === 2
+                              ? "border-amber-500 shadow-md ring-1 ring-amber-500 bg-amber-50/5 dark:bg-amber-950/5"
+                              : "border-slate-200 dark:border-zinc-800 hover:border-slate-350 dark:hover:border-zinc-700 shadow-xs"
+                          }`}
+                        >
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-extrabold uppercase bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded">
+                                2. Faktický
+                              </span>
+                              <div className="p-1 text-amber-600 dark:text-amber-400">
+                                <Volume2 className="w-4 h-4" />
+                              </div>
+                            </div>
+                            
+                            <div className="space-y-1">
+                              <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wide">Pochopení:</p>
+                              <p className="text-xs text-slate-600 dark:text-zinc-300 leading-relaxed line-clamp-4">
+                                {tripleReplies.factual.analysis}
+                              </p>
+                            </div>
+
+                            <div className="space-y-1">
+                              <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wide">Štít k odeslání:</p>
+                              <div className="p-2.5 bg-slate-50 dark:bg-zinc-950 rounded-lg text-xs font-medium text-slate-800 dark:text-zinc-250 leading-relaxed border border-slate-100 dark:border-zinc-850/50 line-clamp-5">
+                                {tripleReplies.factual.reply}
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectTripleVoiceIndex(2);
+                            }}
+                            className={`w-full py-1.5 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all ${
+                              selectedTripleVoiceIndex === 2
+                                ? "bg-amber-600 text-white"
+                                : "bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-200"
+                            }`}
+                          >
+                            <Play className="w-3 h-3" />
+                            <span>Přehrát</span>
+                          </button>
+                        </div>
+
+                        {/* CARD 3: UNCOMPROMISING */}
+                        <div 
+                          onClick={() => handleSelectTripleVoiceIndex(3)}
+                          className={`bg-white dark:bg-zinc-900 rounded-2xl p-5 border-2 transition-all cursor-pointer flex flex-col justify-between gap-4 ${
+                            selectedTripleVoiceIndex === 3
+                              ? "border-blue-500 shadow-md ring-1 ring-blue-500 bg-blue-50/5 dark:bg-purple-950/5"
+                              : "border-slate-200 dark:border-zinc-800 hover:border-slate-350 dark:hover:border-zinc-700 shadow-xs"
+                          }`}
+                        >
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-extrabold uppercase bg-blue-100 dark:bg-purple-950/60 text-blue-800 dark:text-purple-300 px-2 py-0.5 rounded">
+                                3. Nekompromisní
+                              </span>
+                              <div className="p-1 text-blue-600 dark:text-purple-400">
+                                <Volume2 className="w-4 h-4" />
+                              </div>
+                            </div>
+                            
+                            <div className="space-y-1">
+                              <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wide">Pochopení:</p>
+                              <p className="text-xs text-slate-600 dark:text-zinc-300 leading-relaxed line-clamp-4">
+                                {tripleReplies.uncompromising.analysis}
+                              </p>
+                            </div>
+
+                            <div className="space-y-1">
+                              <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wide">Štít k odeslání:</p>
+                              <div className="p-2.5 bg-slate-50 dark:bg-zinc-950 rounded-lg text-xs font-medium text-slate-800 dark:text-zinc-250 leading-relaxed border border-slate-100 dark:border-zinc-850/50 line-clamp-5">
+                                {tripleReplies.uncompromising.reply}
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectTripleVoiceIndex(3);
+                            }}
+                            className={`w-full py-1.5 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all ${
+                              selectedTripleVoiceIndex === 3
+                                ? "bg-blue-600 text-white"
+                                : "bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-200"
+                            }`}
+                          >
+                            <Play className="w-3 h-3" />
+                            <span>Přehrát</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* SELECTED ACTIONS PANEL */}
+                      {selectedTripleVoiceIndex !== null && (
+                        <div className="bg-slate-900 text-white border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
+                          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                            <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                              <span>🛡️</span>
+                              Aktivní vybraný štít: {selectedTripleVoiceIndex === 1 ? "Laskavý" : selectedTripleVoiceIndex === 2 ? "Věcný" : "Nekompromisní"}
+                            </h3>
+                            <span className="text-[10px] bg-slate-800 text-emerald-400 px-2 py-0.5 rounded font-mono">
+                              Připraven k odeslání
+                            </span>
+                          </div>
+
+                          <p className="text-sm text-slate-200 leading-relaxed font-sans whitespace-pre-line">
+                            {selectedTripleVoiceIndex === 1 
+                              ? tripleReplies.kind.reply 
+                              : selectedTripleVoiceIndex === 2 
+                              ? tripleReplies.factual.reply 
+                              : tripleReplies.uncompromising.reply}
+                          </p>
+
+                          <div className="flex flex-wrap gap-2.5 pt-1.5 justify-end">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const textToCopy = selectedTripleVoiceIndex === 1 
+                                  ? tripleReplies.kind.reply 
+                                  : selectedTripleVoiceIndex === 2 
+                                  ? tripleReplies.factual.reply 
+                                  : tripleReplies.uncompromising.reply;
+                                navigator.clipboard.writeText(textToCopy);
+                                setIsCopied(true);
+                                setTimeout(() => setIsCopied(false), 2000);
+                              }}
+                              className="px-4 py-2 text-xs font-bold bg-zinc-800 text-zinc-100 hover:bg-zinc-700 active:scale-98 rounded-lg flex items-center gap-2 transition-all cursor-pointer border border-zinc-700"
+                            >
+                              {isCopied ? (
+                                <>
+                                  <Check className="w-4 h-4 text-green-400" />
+                                  <span>Zkopírováno!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-4 h-4" />
+                                  <span>Zkopírovat odpověď</span>
+                                </>
+                              )}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const textToSave = selectedTripleVoiceIndex === 1 
+                                  ? tripleReplies.kind.reply 
+                                  : selectedTripleVoiceIndex === 2 
+                                  ? tripleReplies.factual.reply 
+                                  : tripleReplies.uncompromising.reply;
+                                
+                                handleSaveToHistoryCustomText(
+                                  `Odpověď: ${selectedTripleVoiceIndex === 1 ? "Laskavá" : selectedTripleVoiceIndex === 2 ? "Věcná" : "Nekompromisní"}`,
+                                  textToSave
+                                );
+                              }}
+                              className="px-4 py-2 text-xs font-bold bg-blue-600 dark:bg-purple-600 text-white hover:bg-blue-700 dark:hover:bg-purple-700 active:scale-98 rounded-lg flex items-center gap-2 transition-all cursor-pointer shadow-sm"
+                            >
+                              <Lock className="w-4 h-4 text-white/90" />
+                              <span>Uložit šifrovaně do paměti</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
